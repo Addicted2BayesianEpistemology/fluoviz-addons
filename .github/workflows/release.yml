@@ -1,0 +1,40 @@
+# A tag (v1.0.0, v1.1.0 ...) builds the files that FluoViz's Install button downloads and attaches them to a GitHub release:
+#   dist/index.json   the list of add-ons (sha256, size, manifest)
+#   dist/<id>-<version>.zip   one zip per add-on
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The tag whose release gets (or replaces) the files"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the add-ons
+        run: python3 scripts/build_addon.py
+      - name: Check that every zip matches its sha256 in the index
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          d = pathlib.Path("dist")
+          for a in json.loads((d / "index.json").read_text())["addons"]:
+              got = hashlib.sha256((d / a["url"]).read_bytes()).hexdigest()
+              assert got == a["sha256"], (a["id"], got, a["sha256"])
+              print("ok", a["id"], a["version"], got[:12])
+          PY
+      - name: Attach the files to the release
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "Add-ons for FluoViz. FluoViz reads index.json from the latest release (Settings > Add-ons)." --latest
+          gh release upload "$TAG" dist/* --clobber

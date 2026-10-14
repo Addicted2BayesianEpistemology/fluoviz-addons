@@ -1,0 +1,121 @@
+# Autoencoders add-on: the interface (contract for the Help guide and for the tests)
+
+*Written by A3 (the page).  Words in **bold** are labels the page shows exactly; the Help guide (`web/help.js`) quotes them, and a test looks for every bold label in the files of `web/`.  Words in `code font` are not shown (test hooks, routes).  What the numbers mean and how the server computes them: `SPEC.md`, `docs/api.md`.  Everything the server says ("verdict", "words", "reasons", "notes", "warnings", error messages) is shown as it comes, in plain English; the fixed phrases of the page itself are listed under "Fixed phrases".*
+
+## Where things are
+
+* **Sidebar**: group **Experimental methods**, item **Autoencoders** with the small badge **add-on** (it exists only while the add-on is installed and running; Settings → Add-ons installs it).  Route `/autoencoders`, page title **Autoencoders (add-on)**, `needsData` (without an open project the framework shows its usual "open a project first").
+* **Help**: the guide tab **Autoencoders** of the Help page (`#/help?tab=addon:autoencoders:autoencoders`); the button **How to read this** in the page head opens it.
+* The page is one **stepper** of nine steps above ONE panel, like Functional PCA.  Steps 1 to 4 are the Functional PCA components themselves (same controls, same server routes `/api/fpca/*`); steps 5 to 9 are the add-on's own.
+
+## Page head
+
+* Title **Autoencoders (add-on)** with the pill **add-on**; a one-paragraph lead; the button **How to read this**.
+* **Result bar** (`ResultBar kind="autoencoder"`): a list of the trained networks (`autoencoder-N`, with "(outdated)" when the data changed), rename, delete, the button **Save this model** (only for an up-to-date network; otherwise "Recompute the model first"), and, for an outdated network, the notice "Outdated: … changed since this autoencoder was computed." with the button **Train again with the same settings** (same id, same title, a new network: nothing is trained silently).
+* While a network is being trained a bar with the progress, the elapsed time and **Cancel** is shown above the stepper, whatever step the person looks at.
+
+## The stepper
+
+Nine numbered, clickable, keyboard-reachable buttons (arrow keys move between them; states done / current / needs attention / not yet):
+
+**1 · What to model** · **2 · Domain** · **3 · Representation** · **4 · Smoothing** · **5 · Network** · **6 · Train** · **7 · Results** · **8 · Checks** · **9 · Use**
+
+Every step has a box **What this step does and what to check** (open by default), the plain-English problems of the step (yellow notices, they block **Train the network** when they concern steps 1 to 5), and the buttons **Back** / **Next** (step 6 has **See the results** once a network exists; step 9 has no Next).
+
+## Steps 1 to 4 (the Functional PCA components)
+
+* **1 · What to model**: three cards **Fluorescence**, **Absorbance**, **Both together (multivariate)**; per variable **Pre-treatment**, for absorbance the switch "Use the processed spectra …"; there are no weights between the variables (each variable counts equally, the card **Both together (multivariate)** says so); **Samples that are left out**; the button **Run with the recommended settings** (see below).
+* **2 · Domain**: the picture **Observed pixels**, the facts, **Minimum coverage of a pixel**, links to the scatter removal and the focus window.
+* **3 · Representation**: the new first block **Functional version** (below), then the cards **Gaussian process (Karhunen–Loève)** (recommended), **B-splines**, **Cosines** and their settings, and the explorer **How many terms do I need?** for the Gaussian process.  The card **Pixels (no basis)** is not offered here: "on the pixels" is the other value of the functional switch.
+* **4 · Smoothing**: **Method**, the button **Check the smoothing** with its pictures (measured / smoothed / residual) and the verdict.
+
+### The functional switch (step 3)
+
+A two-way choice at the top of step 3, **Functional version**:
+
+* **On the coefficients of a basis (functional)** (the default): every EEM and every absorbance spectrum is first written as a smooth function (the Gaussian-process basis, B-splines or cosines of steps 3 and 4) and the network works on the coefficients.  Sentence shown: "The network sees a few smooth, noise-free numbers per sample instead of thousands of noisy pixels. This usually trains faster and gives smoother results, and the setting **smoothify** in step 5 can push the rebuilt samples further towards smooth functions."
+* **On the pixels**: the network works on the observed values themselves (no basis, no smoothing, gaps are allowed).  Sentence shown: "Nothing is assumed about smoothness: every observed pixel is one input. Use it as a reference, or when the functional version hides something you want to see. Noise stays in the data, so the network may learn it."
+* The Gaussian-process basis is recommended; with "On the pixels" the cards of the bases and step 4 say that there is nothing to choose.
+
+## Step 5 · Network
+
+Left, in this order (every control has a one-sentence help tooltip):
+
+1. **Type of network**: two cards, **Autoencoder** ("Squeezes every sample into a few numbers, the code, and rebuilds the sample from them. Use it to describe and compare samples.") and **Variational autoencoder** ("Also learns what a typical code looks like. It can draw new, similar samples and tell when a sample is unusual.").
+2. **Number of codes (latent dimension)**: a number (1 to 32, default from the advice, with the advice sentence under it: e.g. "Suggested: 4 (the functional PCA needs 5 components for 99 % of the variation; the rule is the smaller of that, one tenth of the samples and 8)"), the button **Latent-dimension scan** (trains small networks for 1, 2, 3 … codes and compares them with PCA / functional PCA; takes minutes) and, when it has run, the chart **Error on held-out samples against the number of codes** with the recommended number and the button **Use N codes**.
+3. **Size of the network**: **Small** (64, 32), **Medium** (128, 64), **Large** (256, 128, 64), **Custom** (a field **Layer widths** such as `64, 32`).  The note "The decoder is a mirror image of the encoder."
+4. **Activation**: a list (**silu**, **tanh**, **gelu**, **relu**, **softplus**, **elu**, **linear**), the sentence "The activation is the bend each neuron puts into its output. silu and tanh are smooth, so the rebuilt functions are smooth. linear makes the network equivalent to PCA: use it as a reference."
+5. **Regularisation** (against memorising the samples): **Dropout** (0 to 0.5), **Weight decay**; **Denoising**: **Noise added to the input (in standard deviations)** and **Share of inputs hidden** with the sentence "Denoising trains the network to rebuild the clean sample from a damaged copy. The codes become more robust, and missing values are handled better."
+6. **Advanced network settings** (a fold): the switch **Start from PCA (linear shortcut)** (on by default) with its sentence: "The network starts as the PCA and learns only what the bends add on top of it, so it is never worse than PCA on held-out samples; switch it off for a classical autoencoder."  (With the *linear* activation and the shortcut the network is the PCA itself: the page says so.)
+7. **Options of the variational autoencoder** (a fold; disabled with the reason "Only for the variational autoencoder" while the type is **Autoencoder**): **Weight of the typical-code term (β)** ("β below 1: sharper rebuilt samples; above 1: more regular codes"), **Warm-up (epochs)** (empty = 20 % of the epochs), **Free bits (nats per code)**, **Noise level of the data (σ)** (**Learned** / **Fixed** with a number), **Prior** (**One cloud (normal)** / **Mixture of clouds**, the second with **Number of clouds**; the mixture lets the network group the samples by itself).
+8. **Smoothify**: a logarithmic slider (0 = off, then 0.0001 up to 10, the range of the smoothify scan) and a number (default 0 = off), then the explanation: "Smoothify penalises big coefficients of the rebuilt sample, above all in the rough directions. The larger it is, the more the rebuilt EEMs move towards smooth functions, at the price of a slightly larger rebuilding error. With the Gaussian-process basis this is exactly the penalty of the Gaussian process (large coefficients of rough components cost the most); with B-splines or cosines it is the roughness penalty of the representation." and, only for the pixel version, "With the pixels there is no smoothness to measure: smoothify then acts as a plain penalty on the size of the values." A select **Smoothness is measured by** (**The smoothness of the representation** / **The plain size of the coefficients (ridge)**), the button **Smoothify scan** (trains the network for several values; minutes) and the chart **Error against roughness** (an L-curve: one point per value, the suggested one marked) with the button **Use N**.
+
+Right: the card **The network in numbers**: **Inputs**, **Codes**, **Parameters**, **Samples per parameter**, **Samples per code**, **Start** (**PCA (linear shortcut)** or **random (classical)**), **Validation** (how the held-out samples are chosen) and **Time** (an estimate), computed by the server (`POST /check`, automatic 700 ms after the last change); the server's warnings and the page's own warning (see Fixed phrases) as yellow notices; the reasons that block training (red).
+
+Buttons: **Back**, **Next** (to step 6).
+
+## Step 6 · Train
+
+* The card **What will be done**: the choices of steps 1 to 5 in plain words (variables and pre-treatment, representation and smoothing, network, smoothify, how many samples take part) and the time estimate ("about 40 seconds on this computer").
+* A fold **Training settings**: **Maximum number of epochs** (an epoch is one pass of the network over all training samples), **Patience (epochs without improvement)**, **Share of samples held out**, **Folds (fewer than 30 samples)**, **Learning rate**, **Batch size** (empty = automatic), **Number of random starts** (the network is trained this many times from different random numbers and the best one is kept), **Random seed**, **Title of the result**.
+* When there are fewer than 12 samples (and at least 4) the switch **Train on fewer than 12 samples anyway** appears with a warning; without it **Train the network** is disabled and the problem says so in step 1.
+* **Train the network** (primary button; disabled while a network is being trained or something blocks it, with the reason beside it) and **Cancel** (nothing is saved).
+* The live chart **Training so far**: loss on the training samples and on the held-out samples against the epoch, updated twice a second from the history route; the best epoch is marked; the line under it says "Start 2 of 3, epoch 34".
+* A refusal of the server is shown in a red notice in plain words ("Only 9 samples are included: …") and as a toast; **Cancelled: nothing was saved.**
+* When it finishes the page goes to step 7.
+
+## Step 7 · Results
+
+Four cards (**Variance explained on held-out samples**, **Codes**, **Against PCA** (or **Against functional PCA**: the difference of the variance explained on held-out samples, in points, network minus linear method; the sentence that says whether it is worth it is the server's, under the cards), **Flagged samples**) and five tabs:
+
+* **Latent space**: the chart **Codes of the samples** (any two codes, or the two main directions of the codes when there are more than two; **Horizontal axis**, **Vertical axis**, **Colour by**, **Symbol by**; held-out samples carry a ring; for a variational autoencoder the switch **Show the uncertainty of each code**); hovering a point shows a card with a small picture of the EEM, the split, the status, the error; a click selects the sample (**Open in Samples**).  Below: the card **Codes against other variables** (**Add a variable**, **Relate the codes**: correlation of every code with each variable and the cross-validated R² of "predict it from the codes" next to the same from PCA scores).
+* **Traversals**: what every code does.  **Range** (**±1 SD**, **±2 SD**, **±3 SD**: standard deviations of the codes of the training samples), **Show** (**Images** / **Difference to the mean**); one row per code with the decoded EEMs from −3 to +3 SD (all other codes at their mean) and the absorbance curves; under it the card **Sensitivity of the output to each code** (what a small change of each code does at the mean code, with the share of each code and one sentence).
+* **Samples**: the table of the samples (worst rebuilt first; filters **All**, **Training**, **Held out**, **Flagged**, each with its count, and a search field **Find a sample**), and for the chosen sample the status in words, its code, and the pictures **Measured**, **Rebuilt**, **Difference** (EEM) and the absorbance curves; the card **Unusual samples** (**Method**: **Median plus c × MAD** / **Quantile of the held-out errors** / **Limit of the saved model**; **Find them**; the histogram of the errors with the limit and the list of the flagged samples).
+* **Interpolation**: **Sample A**, **Sample B**, **Number of steps**; three strips: **Through the code** (the codes are mixed and decoded), **Plain mixture** (the two measured samples mixed linearly), **Difference**; a slider **Position** to look at one step big.
+* **Generate** (variational autoencoders only; for a deterministic one the tab is disabled with the reason "Only variational autoencoders can draw new samples"): **Number of samples**, **Seed**, **Temperature** (0 to 2: how far from the typical code the draws go), **Draw new samples**; the pictures, each tagged **synthetic**, with the nearest real sample; the banner "Synthetic samples: made up by the network, not measured"; downloads **Download as .npz** and **Download as CSV**.
+
+## Step 8 · Checks
+
+Five tabs (a verdict in words on top of each):
+
+* **Training**: the chart **Loss during training** (**Total**, **Reconstruction**, **KL**, **Smoothify**, **β and σ²**; training and held-out lines, the best epoch marked), the table **Random starts** (seed, variance explained on held-out samples, best epoch, which one was **kept**) and the overfitting verdict in words.
+* **Quality**: **Variance explained** (overall and per variable, on held-out and on training samples), RMSE in the units of the data, the card **Is the nonlinearity worth it?** (the network against PCA / functional PCA with the same number of codes, with the verdict), the button **Compare with PCA for every number of codes**, **Worst rebuilt samples** (click: opens the sample), **Where the network rebuilds well** (local R² map), **Typical size of the difference** (map), **Rebuilding error of the samples** (histogram with the limit).
+* **Latent dimensions**: a sentence on the health of the codes (all used? inactive ones?) with the cards **Effective number of codes** and **Typical typicality of the codes**, for a variational autoencoder the chart **KL of each code** (inactive codes in grey), **Correlation between the codes**, and the **Latent-dimension scan** again (options **Largest number of codes**, **Also try the other type of network**, the button **Latent-dimension scan**).
+* **Stability**: the button **Check the stability** (trains again from other random starts: **Number of runs**, switch **Resample the samples (bootstrap)**), the chart **Agreement of the codes between runs**, the verdict "The codes are / are not reproducible: …".
+* **Smoothness**: the sentence on the roughness, the card **Smoothify of this network**, the chart **Roughness of the samples and of the rebuilt samples**, and the **Smoothify scan** again with **Use the suggested value** (sets smoothify and goes to step 6).
+
+## Step 9 · Use
+
+* **Variables made by this network**: the list of the published variables (`z1 … zd`, the reconstruction error and R², the status, for a variational autoencoder also the uncertainty of each code, `kl`, `elbo`), with "They appear in the Plots page and in every selector."
+* **Use the codes**: **Cluster the latent space** (opens Clustering & LDA with the codes chosen), **Classify with the latent space** (the same, on the tab "Separation"), **Plot the codes** (opens Plots).
+* **Keep the network**: **Save this model** (the saved model can be applied to new samples and used in classification chains), **Apply a saved model** (link to the page Saved models), **Change the settings and train again** (back to step 5).
+* **Downloads**: **Codes (CSV)**, **Rebuilt samples (.npz)**, **Training history (CSV)**, **Synthetic samples (.npz)** (variational autoencoders).
+* **Methods paragraph** (text for a paper) with the button **Copy** and the references.
+
+## Run with the recommended settings
+
+A button at the foot of step 1.  It keeps the person's variables, pre-treatments and weights, asks the server for the advice (`GET /defaults`, `advise=1`), fills steps 2 to 6 with it (functional version, Gaussian-process basis, **Autoencoder**, **Small**, advised number of codes, the PCA start on, smoothify 0, 3 random starts) and trains.  The page goes to step 6 and shows the live chart; when the network is done it goes to step 7.  If the server refuses (too few samples, PyTorch missing) the reason is shown in plain words in step 6 and nothing changes.
+
+## Fixed phrases of the page (not from the server)
+
+* Cannot train: "Training needs PyTorch. Open Settings → Add-ons and press Install (or Repair) for Autoencoders." (shown when the server says torch is not available).
+* Few samples: "Only N samples are included: an autoencoder needs at least 12 samples to be trained honestly. Add more samples, use the PCA or functional PCA pages for very small data sets, or switch on 'Train on fewer than 12 samples anyway' in step 6."
+* The warnings of step 5 (memorising, samples per code ...) and every verdict (against PCA, overfitting, stability, smoothness, the health of the codes) are the server's sentences: the page applies no threshold of its own and only colours a verdict by what the server says.
+* Training: "Start 2 of 3, epoch 34"; **Cancelled: nothing was saved.**
+* Outdated: "Outdated: … changed since this autoencoder was computed." (result bar) and, in steps 7 to 9, "The data changed since this network was trained" followed by what can still be looked at and the pointer to **Train again with the same settings**.
+* Queue: "Another computation is running: … starts right after it (a newer request replaces this one)."
+* Results of scans that were computed for other settings are dimmed with "These numbers were computed for other settings: run the scan again."
+* Synthetic: "Synthetic samples: made up by the network, not measured".
+* Empty states: "No network has been trained yet. Choose the settings and press **Train the network** in step 6, or press **Run with the recommended settings** in step 1."
+
+## Test hooks (`data-ae-*`; steps 1 to 4 keep the Functional PCA hooks `data-fpca-*`, and the frame of every step is the Functional PCA's: `data-fpca-step=1..9`, `data-fpca-panel=n`, `data-fpca-back`, `data-fpca-next`, `data-fpca-issue`, `data-fpca-explain`)
+
+`tests/e2e/flow_autoencoders.py` uses them.
+
+* **Page**: `data-ae-page` (the current step; `data-busy` = 1 while a network is trained, a scan runs or the advice is being asked for), `data-ae-howto`, `data-ae-addon-pill`, `data-ae-resultbar` (the framework's `data-resultbar-recompute` is its button **Train again with the same settings**, `data-save-model` its **Save this model**), `data-ae-gate` / `data-ae-noresult` / `data-ae-result-error` (steps 7 to 9 without a network), `data-ae-stale` (the outdated note), `data-ae-queued`, `data-ae-preparing`.
+* **Step 3**: `data-ae-functional-card`, `data-ae-functional-seg`, `data-ae-functional=functional|pixels` (the sentence shown), `data-ae-pixels-note`.
+* **Step 5**: `data-ae-family=ae|vae` (`role=radio`), `data-ae-latent`, `data-ae-latent-advice`, `data-ae-use-latent`, `data-ae-size-seg`, `data-ae-hidden`, `data-ae-activation`, `data-ae-dropout`, `data-ae-weight-decay`, `data-ae-noise`, `data-ae-mask`, `data-ae-advanced`, `data-ae-skip`, `data-ae-skip-words`, `data-ae-vae-options`, `data-ae-vae-why`, `data-ae-beta`, `data-ae-warmup`, `data-ae-freebits`, `data-ae-prior`, `data-ae-smoothify` (number), `data-ae-smoothify-slider`, `data-ae-smoothify-words`, `data-ae-smoothify-metric`, `data-ae-use-suggested`, the scans `data-ae-scan=latent|smoothify|stability|baseline` with `data-ae-scan-run=<kind>` (button), `data-ae-scan-cancel`, `data-ae-scan-error`, `data-ae-scan-stale`, `data-ae-scan-why`, the charts `data-ae-latent-scan-chart`, `data-ae-lcurve`; the numbers `data-ae-numbers` with `data-ae-stat=inputs|codes|params|per-param|per-code|start|validation|time`, `data-ae-warning` (yellow), `data-ae-block` (red), `data-ae-check-error`.
+* **Step 6**: `data-ae-summary`, `data-ae-few`, `data-ae-allow-few`, `data-ae-train-settings` (the fold), `data-ae-epochs`, `data-ae-patience`, `data-ae-val-fraction`, `data-ae-folds`, `data-ae-lr`, `data-ae-batch`, `data-ae-restarts`, `data-ae-seed`, `data-ae-title`, `data-ae-train`, `data-ae-train-why`, `data-ae-cancel`, `data-ae-live` (`data-rows`, `data-status` = running | done | cancelled | error), `data-ae-live-line`, `data-ae-fit-error`.
+* **Step 7**: `data-ae-cards`, `data-ae-stat7=r2|codes|baseline|flagged`; the tabs are buttons `data-ae-tab=latent|traversals|samples|interpolation|generate` (`aria-selected`, `aria-disabled`) and the panel is `data-ae-panel=<id>`.  Latent space: `data-ae-latent-tab`, `data-ae-axis-x`, `data-ae-axis-y`, `data-ae-latent-chart`, `data-ae-hover` (`data-id` = the sample on the card), `data-ae-open-sample`, `data-ae-relate`, `data-ae-relate-go`.  Traversals: `data-ae-traversals-tab`, `data-ae-trav-range`, `data-ae-trav-show`, `data-ae-traversal=<code number>`, `data-ae-trav-all`, `data-ae-trav-error`, `data-ae-sensitivity`.  Samples: `data-ae-samples-tab`, `data-ae-sample-table`, `data-ae-sample-filter`, `data-ae-sample-find`, `data-ae-sample-row` (`data-id`), `data-ae-sample-view` (`data-id`), `data-ae-sample-words`, `data-ae-sample-error`, `data-ae-images`, `data-ae-image=measured|rebuilt|difference`, `data-ae-curves`, `data-ae-anomalies`, `data-ae-anom-method`, `data-ae-anom-go`, `data-ae-anom-words`, `data-ae-flagged-row`.  Interpolation: `data-ae-interp-tab`, `data-ae-interp-a`, `data-ae-interp-b`, `data-ae-interp-steps`, `data-ae-interp-strip=latent|linear|difference`, `data-ae-interp-pos`, `data-ae-interp-error`.  Generate: `data-ae-generate-tab`, `data-ae-gen-n`, `data-ae-gen-seed`, `data-ae-gen-temperature`, `data-ae-generate-go`, `data-ae-gen-error`, `data-ae-generated`, `data-ae-synthetic-banner`, `data-ae-synthetic` (one per sample).
+* **Step 8**: tab buttons `data-ae-tab=training|quality|latent|stability|smoothness`, panels `data-ae-check=<id>`; `data-ae-verdict` (`data-level` = good | info | warning | critical) on every verdict.  Training: `data-ae-check-training`, `data-ae-training-verdict`, `data-ae-loss-what`, `data-ae-loss-chart`, `data-ae-restarts-table`.  Quality: `data-ae-check-quality`, `data-ae-quality-verdict`, `data-ae-baseline`, `data-ae-baseline-verdict`, `data-ae-baseline-chart`, `data-ae-worst`, `data-ae-localr2`.  Latent dimensions: `data-ae-check-latent`, `data-ae-latent-verdict`, `data-ae-kl-chart`, `data-ae-corr-chart`.  Stability: `data-ae-check-stability`, `data-ae-stab-runs`, `data-ae-stability-chart`, `data-ae-stability-verdict`.  Smoothness: `data-ae-check-smoothness`, `data-ae-smoothness-verdict`.
+* **Step 9**: `data-ae-vars` (one `li` per variable, `data-name`), `data-ae-to-cluster`, `data-ae-to-classify`, `data-ae-to-plots`, `data-ae-to-models`, `data-ae-downloads` with `data-ae-download=codes|reconstruction|history|synthetic`, `data-ae-methods` (the text), `data-ae-copy`; **Save this model** is the framework's `data-save-model` (dialog `data-save-model-dialog`, `-name`, `-confirm`).

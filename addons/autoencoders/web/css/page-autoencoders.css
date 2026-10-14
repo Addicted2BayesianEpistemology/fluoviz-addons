@@ -1,0 +1,71 @@
+/* Autoencoders add-on.  Tokens only (no literal colours); every class is prefixed ae-.  The stepper, the step panel, the cards and the other pieces of steps 1 to 4 are the
+   Functional PCA's (fp- classes, page-fpca.css): this file only adds what that page does not have and overrides the number of steps. */
+
+/* ---------------------------------------------------------------- the stepper has nine steps */
+.ae-page .fp-stepper ol { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+@media (max-width: 1500px) { .ae-page .fp-stepper ol { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .ae-page .fp-stepper ol { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------------------------------------------------------------- the network step */
+.ae-cards2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); }
+@media (max-width: 760px) { .ae-cards2 { grid-template-columns: minmax(0, 1fr); } }
+.ae-section { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); min-width: 0; }
+.ae-controls > .ae-section:first-child { border-top: 0; padding-top: 0; }
+.ae-side { position: sticky; top: calc(var(--topbar-h, 56px) + 12px); align-self: start; }
+@media (max-width: 1250px) { .ae-side { position: static; } }
+.ae-latent-row { align-items: flex-end; gap: 12px 18px; }
+.ae-smooth { display: flex; flex-direction: column; gap: 4px; }
+.ae-range { flex: 1; min-width: 120px; accent-color: var(--accent); height: 28px; }
+.ae-slider-ends { position: relative; height: 16px; margin: 0 12px; font-variant-numeric: tabular-nums; }
+.ae-slider-ends span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.ae-slider-ends span.first { transform: none; }
+.ae-slider-ends span.last { transform: translateX(-100%); }
+.ae-vae > summary { font-size: 14px; }
+.ae-functional .card-head h3 { font-size: 15px; }
+.ae-grow { flex: 1 1 260px; min-width: 0; }
+.ae-scan { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ae-live-line { margin: 4px 14px 10px; }
+.ae-stat .l { display: flex; align-items: center; gap: 6px; }
+.ae-stat .v { font-size: 24px; overflow-wrap: anywhere; }
+.fp-stat .v.bad { color: var(--st-critical-ink); }
+.fp-stat .v.ok { color: var(--st-good-ink); }
+.ae-page .fp-cards4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 12px; }
+
+/* ---------------------------------------------------------------- tabs */
+.ae-tabs { flex-wrap: wrap; overflow-x: visible; }
+.ae-tabs .tab.off { opacity: .45; cursor: not-allowed; }
+.ae-tabs .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-sm, 6px); }
+
+/* ---------------------------------------------------------------- latent space: the plot and the hover card */
+.ae-latent-grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: var(--gap); align-items: start; }
+@media (max-width: 1100px) { .ae-latent-grid { grid-template-columns: minmax(0, 1fr); } }
+.ae-latent-plot { min-width: 0; }
+.ae-hover { min-width: 0; }
+.ae-hover .card-head h3 { overflow-wrap: anywhere; }
+.ae-thumb { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); padding: 4px; }
+.ae-thumb canvas { display: block; width: 100%; height: auto; image-rendering: auto; border-radius: 4px; }
+
+/* ---------------------------------------------------------------- samples */
+.ae-samples-grid { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: var(--gap); align-items: start; }
+@media (max-width: 1100px) { .ae-samples-grid { grid-template-columns: minmax(0, 1fr); } }
+.ae-sample-list tbody tr[data-ae-sample-row] { cursor: pointer; }
+.ae-sample-list tbody tr[data-ae-sample-row]:hover { background: var(--surface-3); }
+.ae-sample-list tbody tr.sel { background: var(--accent-weak); }
+.ae-sample-list tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ---------------------------------------------------------------- generate / use */
+.ae-synthetic { border-width: 1.5px; }
+.ae-varlist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 6px 14px; }
+.ae-varlist li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ae-varlist .small { overflow-wrap: anywhere; }
+.ae-page .fp-recipe { max-width: 100%; }
+
+/* ---------------------------------------------------------------- nothing sideways on a narrow screen */
+.ae-page, .ae-page .fp-panel, .ae-page .fp-panel-body { min-width: 0; }
+.ae-page .table-wrap { max-width: 100%; }
+.ae-page .chart-card { min-width: 0; }
+.ae-page .fp-page .field > .row:has(> input.num-in), .ae-page .field > .row:has(> input.num-in) { max-width: 220px; }
+@media (max-width: 640px) {
+  .ae-page .fp-panel-head, .ae-page .fp-panel-body, .ae-page .fp-callouts, .ae-page .fp-nav { padding-left: 14px; padding-right: 14px; }
+  .ae-page .card-head { flex-wrap: wrap; }
+}

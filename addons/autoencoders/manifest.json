@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "id": "autoencoders",
+  "name": "Autoencoders (AE, VAE)",
+  "version": "1.0.0",
+  "summary": "Autoencoders and variational autoencoders for EEMs and absorbance, also on the coefficients of a functional basis, with latent-space tools, anomaly detection and saved models.",
+  "description": "Adds the page Autoencoders to the experimental methods. A neural network learns a few numbers (the latent code) that describe each sample, and rebuilds the sample from them. Variational autoencoders also learn what a typical code looks like, so they can draw new, similar samples and tell when a sample is unusual. The functional versions work on the coefficients of the basis chosen as for the functional PCA, and have a smoothing setting (smoothify). The codes become variables you can plot, cluster and classify, and a fitted network can be saved and applied to new samples. Installing it downloads about 150 MB of extra libraries (PyTorch, CPU version).",
+  "requires_fluoviz": ">=1.0.0,<2",
+  "platforms": [
+    "linux-64",
+    "linux-aarch64",
+    "osx-64",
+    "osx-arm64",
+    "win-64"
+  ],
+  "python_package": "fluoviz_addon_autoencoders",
+  "entry": "fluoviz_addon_autoencoders:register",
+  "conda": {
+    "all": [],
+    "linux-64": [
+      "pytorch=*=cpu_generic*",
+      "libblas=*=*openblas"
+    ],
+    "linux-aarch64": [
+      "pytorch=*=cpu_generic*",
+      "libblas=*=*openblas"
+    ],
+    "osx-64": [
+      "pytorch=*=cpu_generic*",
+      "libblas=*=*openblas"
+    ],
+    "osx-arm64": [
+      "pytorch=*=cpu_generic*",
+      "libblas=*=*openblas"
+    ],
+    "win-64": [
+      "pytorch"
+    ]
+  },
+  "extra_download_mb": 150,
+  "libraries_in_server": false,
+  "provides": {
+    "nav": [
+      {
+        "group": "Experimental methods",
+        "id": "autoencoders",
+        "path": "/autoencoders",
+        "label": "Autoencoders",
+        "badge": "add-on",
+        "icon": "brain",
+        "title": "Autoencoders (add-on)",
+        "page": "web/page.js",
+        "needsData": true
+      }
+    ],
+    "help_tabs": [
+      {
+        "key": "autoencoders",
+        "label": "Autoencoders",
+        "module": "web/help.js"
+      }
+    ],
+    "result_kinds": [
+      {
+        "kind": "autoencoder",
+        "noun": "autoencoder",
+        "saveable": true
+      }
+    ],
+    "saved_kinds": [
+      "autoencoder"
+    ]
+  },
+  "homepage": ""
+}

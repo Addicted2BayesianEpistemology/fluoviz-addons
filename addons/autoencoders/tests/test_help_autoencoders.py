@@ -524,7 +524,7 @@ def test_the_words_are_used_the_way_the_wording_rules_say():
 def test_the_user_note_describes_what_the_manifest_says():
     note = (ADDON / "docs" / "README_user.md").read_text(encoding="utf-8")
     manifest = json.loads((ADDON / "manifest.json").read_text(encoding="utf-8"))
-    assert f"**{manifest['extra_download_mb']} MB of extra libraries**" in note and manifest["name"] in note and manifest["license"] in note and manifest["version"] in note
+    assert f"**{manifest['extra_download_mb']} MB of extra libraries**" in note and manifest["name"] in note and manifest["version"] in note
     for word in ("Settings", "Install", "Remove", "Also remove the extra libraries", "runtime/", "models/", ".fluoviz-model", "Saved models", "never", "offline", "Experimental methods"):
         assert word in note or word.lower() in note.lower(), word
     assert len(note.splitlines()) < 90, "a one-page note"

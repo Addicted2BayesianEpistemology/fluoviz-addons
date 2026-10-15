@@ -6,6 +6,7 @@
 
 * **Sidebar**: group **Experimental methods**, item **Autoencoders** with the small badge **add-on** (it exists only while the add-on is installed and running; Settings → Add-ons installs it).  Route `/autoencoders`, page title **Autoencoders (add-on)**, `needsData` (without an open project the framework shows its usual "open a project first").
 * **Help**: the guide tab **Autoencoders** of the Help page (`#/help?tab=addon:autoencoders:autoencoders`); the button **How to read this** in the page head opens it.
+* **Pictures of EEMs** (the maps of the steps 2 and 4, the strips of the Traversals tab, the pictures of the Samples, Interpolation and Generate tabs, the maps of the Help guide) are drawn like every EEM picture of FluoViz: emission across and excitation up by default, and the other way round (excitation across, emission up) when the person chose it in FluoViz under Settings → Appearance → *Axes of fluorescence maps* (`prefs.eemTranspose`).  Only what is drawn changes: the images the server sends stay `(n_ex, n_em)`, and the tables and files that are downloaded are the same in both layouts.
 * The page is one **stepper** of nine steps above ONE panel, like Functional PCA.  Steps 1 to 4 are the Functional PCA components themselves (same controls, same server routes `/api/fpca/*`); steps 5 to 9 are the add-on's own.
 
 ## Page head
@@ -98,7 +99,7 @@ A button at the foot of step 1.  It keeps the person's variables, pre-treatments
 
 ## Fixed phrases of the page (not from the server)
 
-* Cannot train: "Training needs PyTorch. Open Settings → Add-ons and press Install (or Repair) for Autoencoders." (shown when the server says torch is not available).
+* Cannot train: "Training needs PyTorch. Open Settings → Add-ons and press Install for Autoencoders (if it is already listed as installed, remove it and install it again)." (shown when the server says torch is not available).
 * Few samples: "Only N samples are included: an autoencoder needs at least 12 samples to be trained honestly. Add more samples, use the PCA or functional PCA pages for very small data sets, or switch on 'Train on fewer than 12 samples anyway' in step 6."
 * The warnings of step 5 (memorising, samples per code ...) and every verdict (against PCA, overfitting, stability, smoothness, the health of the codes) are the server's sentences: the page applies no threshold of its own and only colours a verdict by what the server says.
 * Training: "Start 2 of 3, epoch 34"; **Cancelled: nothing was saved.**

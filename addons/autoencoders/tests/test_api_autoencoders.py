@@ -1,3 +1,4 @@
+import importlib.util
 """The API of the add-on (``/api/addon/autoencoders``): advice, checks, the fit job and its history, the result for the page, one sample, traversals, interpolation, generation, sensitivity,
 anomalies, exports, methods, staleness, plain-English errors.  The training is replaced by the exact linear autoencoder (``api_support.fake_train``) so these tests need no PyTorch;
 ``test_api_training.py`` trains for real."""
@@ -48,7 +49,7 @@ def test_defaults_facts_and_a_request_that_can_be_run(world):
     adv = d["advice"]
     assert adv["latent_dim"] == 3 and adv["size"] == "small" and adv["hidden"] == [64, 32] and adv["family"] == "ae" and adv["estimate"]["seconds"] > 0 and "second" in adv["estimate"]["words"]
     assert "describe 99 %" in adv["latent_reason"] and isinstance(adv["warnings"], list) and adv["blocking"] == []
-    assert d["torch"]["available"] and set(d["sizes"]) == {"small", "medium", "large"} and "silu" in d["activations"]
+    assert d["torch"]["available"] == (importlib.util.find_spec("torch") is not None) and set(d["sizes"]) == {"small", "medium", "large"} and "silu" in d["activations"]
     req = d["request"]
     assert req["input"]["variables"] == ["fluorescence", "absorbance"] and req["input"]["fluorescence"]["basis"]["kind"] == "gp" and req["family"] == "ae" and req["smoothify"] == 0.0
     one = A.decode(world.get(f"{B}/defaults").json())
@@ -71,6 +72,7 @@ def test_defaults_without_data_say_so(tmp_path):
 
 
 def test_check_reports_the_numbers_a_person_needs(world):
+    pytest.importorskip("torch")                                  # (without PyTorch the page says so in words: see test_defaults_...)
     out = A.done(world, f"{B}/check", {"latent_dim": 3, "input": INP2})
     assert out["ok"] and out["n"] == 36 and out["input"]["variables"] == ["fluorescence", "absorbance"] and out["input"]["mode"] == "functional"
     assert [b["name"] for b in out["input"]["blocks"]] == ["fluorescence", "absorbance"] and out["input"]["n_inputs"] == sum(b["n_inputs"] for b in out["input"]["blocks"])
@@ -210,6 +212,7 @@ def test_the_vae_and_two_variables(world):
 
 
 def test_a_cancelled_fit_saves_nothing(world, monkeypatch):
+    pytest.importorskip("torch")                                  # (without PyTorch the page says so in words: see test_defaults_...)
     import threading
     started = threading.Event()
 

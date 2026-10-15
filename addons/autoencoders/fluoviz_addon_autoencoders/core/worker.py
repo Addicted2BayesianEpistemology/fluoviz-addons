@@ -126,7 +126,7 @@ def run_in_worker(name: str, kwargs: dict, progress=None, history_path=None, wor
     ``progress(fraction, message)`` is called with what the job reports; if it raises (e.g. ``Cancelled``) the process is terminated and the exception propagates.
     Raises :class:`AutoencoderError` (a plain-English problem with the settings), :class:`WorkerError` (the process failed or died) or :class:`Cancelled`."""
     if not torch_available() and name != "selftest":
-        raise AutoencoderError("PyTorch is not installed: open Settings, then Add-ons, and press Install (or Repair) for Autoencoders.")
+        raise AutoencoderError("PyTorch is not installed: open Settings, then Add-ons, and press Install for Autoencoders (if it is already listed as installed, remove it and install it again).")
     target = JOBS.get(name, name)
     if ":" not in target:
         raise AutoencoderError(f"Unknown job '{name}'.")

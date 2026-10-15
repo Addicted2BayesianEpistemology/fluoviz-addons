@@ -1,7 +1,8 @@
 // The pictures of the guide "Autoencoders" (Help).  They are drawn in SVG with the colours of the theme (they follow the light / dark switch), and from numbers that the add-on's own code computed
 // (data.js: tests/help_data.py writes them, tests/test_help_autoencoders.py recomputes them and compares).  What a colour means is also said by a shape, a dash or a word: never by colour alone.
 // SVG does not wrap text: the lines of every picture are short and placed by hand.
-import { Heat, S, T, T2, TB, AXIS, GRID, fmt, pct, thousands, niceTicks, signed } from './parts.js';
+import { computed } from 'vue';
+import { Heat, S, T, T2, TB, AXIS, GRID, fmt, pct, thousands, niceTicks, signed, transposed } from './parts.js';
 import DATA from './data.js';
 
 const MINUS = '−';
@@ -43,7 +44,9 @@ export const FigAutoencoder = {
     const D = DATA.one;
     const codeX = (i) => 296 + i * 36;
     const w = D.n_codes * 36 - 6;
-    return { ...S, D, codeX, w, sgn, pct, thousands, fmt, em0: D.em[0], em1: D.em[D.em.length - 1], ex0: D.ex[D.ex.length - 1], ex1: D.ex[0] };
+    const emText = `Emission ${D.em[0]}–${D.em[D.em.length - 1]} nm`, exText = `Excitation ${D.ex[D.ex.length - 1]}–${D.ex[0]} nm`;
+    const across = computed(() => (transposed() ? exText : emText)), up = computed(() => (transposed() ? emText : exText));         // (the maps follow Settings > Appearance > Axes of fluorescence maps)
+    return { ...S, D, codeX, w, sgn, pct, thousands, fmt, across, up };
   },
   template: `
   <figure class="sheet-fig">
@@ -51,8 +54,8 @@ export const FigAutoencoder = {
       <defs><marker id="ae-arr1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--text-3)"/></marker></defs>
       <text x="14" y="20" :style="TB">Measured EEM</text>
       <Heat :grid="D.measured" :x="18" :y="30" :w="172" :h="89" :max="1"/>
-      <text x="102" y="136" text-anchor="middle" :style="TXT">Emission {{ em0 }}–{{ em1 }} nm</text>
-      <text transform="translate(12,76) rotate(-90)" text-anchor="middle" :style="TXT">Excitation {{ ex0 }}–{{ ex1 }} nm</text>
+      <text x="102" y="136" text-anchor="middle" :style="TXT">{{ across }}</text>
+      <text transform="translate(12,76) rotate(-90)" text-anchor="middle" :style="TXT">{{ up }}</text>
       <text x="102" y="156" text-anchor="middle" :style="T2">{{ thousands(D.n_pixels) }} pixels that exist,</text>
       <text x="102" y="170" text-anchor="middle" :style="T2">smoothed into {{ D.n_inputs }} coefficients</text>
 
@@ -153,7 +156,8 @@ export const FigTraversal = {
     const D = DATA.traversal;
     const cw = 84, gap = 9, x0 = 22;
     const cols = D.values.map((v, i) => ({ v, x: x0 + i * (cw + gap), label: v === 0 ? '0 SD' : (v > 0 ? '+' : MINUS) + Math.abs(v) + ' SD' }));
-    return { ...S, D, cols, cw, MINUS, sgn };
+    const where = computed(() => (transposed() ? 'excitation to the right, emission up' : 'emission to the right, excitation up'));
+    return { ...S, D, cols, cw, MINUS, sgn, where };
   },
   template: `
   <figure class="sheet-fig">
@@ -171,7 +175,7 @@ export const FigTraversal = {
       <rect x="226" y="174" width="14" height="11" style="fill:var(--series-6);fill-opacity:.85"/><text x="246" y="184" :style="T2">orange: weaker</text>
       <rect x="352" y="174" width="14" height="11" style="fill:var(--line-strong);fill-opacity:.45;stroke:var(--line-strong)"/><text x="372" y="184" :style="T2">grey: no pixel</text>
       <text x="22" y="206" :style="TXT">1 SD of this code = {{ D.sd }}, the standard deviation of the codes of the training samples.</text>
-      <text x="22" y="220" :style="TXT">The strongest difference is {{ Math.round(D.difference_scale * 100) }} % of the highest intensity. Maps: emission to the right, excitation up.</text>
+      <text x="22" y="220" :style="TXT">The strongest difference is {{ Math.round(D.difference_scale * 100) }} % of the highest intensity. Maps: {{ where }}.</text>
     </svg>
     <figcaption><slot/></figcaption>
   </figure>`,

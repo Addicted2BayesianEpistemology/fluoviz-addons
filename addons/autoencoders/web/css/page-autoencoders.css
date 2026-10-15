@@ -44,6 +44,8 @@
 .ae-hover .card-head h3 { overflow-wrap: anywhere; }
 .ae-thumb { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); padding: 4px; }
 .ae-thumb canvas { display: block; width: 100%; height: auto; image-rendering: auto; border-radius: 4px; }
+/* FluoViz: Settings > Appearance > Axes of fluorescence maps = excitation across, emission up: the thumbnail is taller than wide (EEMThumb marks its canvas with data-transposed): a narrower picture, so that the facts below it stay in view */
+.ae-thumb canvas[data-transposed] { width: 55%; margin: 0 auto; }
 
 /* ---------------------------------------------------------------- samples */
 .ae-samples-grid { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: var(--gap); align-items: start; }

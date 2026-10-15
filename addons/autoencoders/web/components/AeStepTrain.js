@@ -59,7 +59,7 @@ export const AeStepTrain = {
     const blocking = computed(() => {
       const out = [], a = check.value.ans, d = A.value.defaults;
       if (a && check.value.key === JSON.stringify(requestBody())) for (const b of a.blocking || []) out.push(b);
-      if (d && d.torch && d.torch.available === false) out.push(d.torch.words || 'Training needs PyTorch. Open Settings → Add-ons and press Install (or Repair) for Autoencoders.');
+      if (d && d.torch && d.torch.available === false) out.push(d.torch.words || 'Training needs PyTorch. Open Settings → Add-ons and press Install for Autoencoders (if it is already listed as installed, remove it and install it again).');
       return out;
     });
     const nSamples = computed(() => (check.value.ans ? check.value.ans.n : sampleCount()));

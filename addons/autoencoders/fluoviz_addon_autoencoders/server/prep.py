@@ -107,7 +107,7 @@ def torch_status() -> dict:
         except Exception:                                                           # noqa: BLE001 - the version is a nicety
             version = None
     return {"available": ok, "version": version,
-            "words": "" if ok else "PyTorch is not installed: open Settings, Add-ons, and press Install (or Repair) for Autoencoders."}
+            "words": "" if ok else "PyTorch is not installed: open Settings, Add-ons, and press Install for Autoencoders (if it is already listed as installed, remove it and install it again)."}
 
 
 def require_torch() -> None:

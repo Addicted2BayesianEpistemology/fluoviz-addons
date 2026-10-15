@@ -110,7 +110,7 @@ export function runFit(body = null, { replace = null, go = true } = {}) {
     const issues = ctx.allIssues();
     if (issues.length) { A.fitError = issues[0].message; ctx.goStep(issues[0].step); return Promise.resolve(null); }
     const d = A.defaults;
-    if (d && d.torch && d.torch.available === false) { A.fitError = d.torch.words || 'Training needs PyTorch. Open Settings → Add-ons and press Install (or Repair) for Autoencoders.'; return Promise.resolve(null); }
+    if (d && d.torch && d.torch.available === false) { A.fitError = d.torch.words || 'Training needs PyTorch. Open Settings → Add-ons and press Install for Autoencoders (if it is already listed as installed, remove it and install it again).'; return Promise.resolve(null); }
   }
   return submitHeavy('Train the network', async () => {
     const L = Object.assign(fp.ae.live, freshLive(), { kind: 'fit', status: 'running' });

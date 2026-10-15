@@ -85,7 +85,7 @@ export const AeStepNetwork = {
       const out = [], a = ans.value, d = A.value.defaults;
       if (a) for (const b of a.blocking || []) out.push(b);
       else if (d && d.advice) for (const b of d.advice.blocking || []) out.push(b);
-      if (d && d.torch && d.torch.available === false) out.push(d.torch.words || 'Training needs PyTorch. Open Settings → Add-ons and press Install (or Repair) for Autoencoders.');
+      if (d && d.torch && d.torch.available === false) out.push(d.torch.words || 'Training needs PyTorch. Open Settings → Add-ons and press Install for Autoencoders (if it is already listed as installed, remove it and install it again).');
       return out;
     });
     const scanOptions = computed(() => ({ families: [net.value.family] }));

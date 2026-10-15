@@ -64,6 +64,14 @@ export const AeSection = {
 };
 
 // ---------------------------------------------------------------- a strip (or a small grid) of EEM pictures as ONE chart
+// The pictures follow Settings > Appearance > Axes of fluorescence maps of FluoViz like every EEM picture: emission across and excitation up, or the other way round.
+// (A FluoViz without that setting has no `prefs.eemTranspose`: the usual layout.  The images stay [n_ex, n_em]; only what is drawn is turned.)
+/** Rows of `rows` turned: out[j][i] = rows[i][j]. */
+const transposeRows = (rows) => {
+  const nr = rows.length, nc = nr ? rows[0].length : 0, out = new Array(nc);
+  for (let j = 0; j < nc; j++) { const r = new Float32Array(nr); for (let i = 0; i < nr; i++) r[i] = rows[i][j]; out[j] = r; }
+  return out;
+};
 /** `images`: typed arrays with .shape [n_ex, n_em] (null = nothing there); `labels`: one title per picture; `kind`: sequential | diverging (signed, symmetric around 0);
  *  `mask`: Uint8Array [n_ex, n_em], 1 = not in the model (grey).  One colour scale for all the pictures (`zrange` or the range of all of them). */
 export const AeStrip = {
@@ -88,18 +96,19 @@ export const AeStrip = {
     const height = computed(() => rows.value * props.rowHeight + 54);
     const layoutOf = () => {
       const t = tokens(), k = cols.value, R = rows.value;
-      const gx = 0.012, topPad = 22 / height.value, ph = (1 - 0) / R;
+      const gx = 0.012, topPad = 22 / height.value, ph = (1 - 0) / R, tp = !!prefs.eemTranspose;
+      const acrossName = tp ? 'Excitation (nm)' : 'Emission (nm)', upName = tp ? 'Emission (nm)' : 'Excitation (nm)';
       const L = { margin: { l: 44, r: 62, t: 6, b: 38 }, annotations: [], showlegend: false, hovermode: 'closest' };
       const ax = (extra) => ({ showline: true, linecolor: t.lineStrong, gridcolor: 'rgba(0,0,0,0)', tickfont: { size: 9.5, color: t.text3, family: t.font }, ticks: 'outside', ticklen: 2, tickcolor: t.lineStrong, zeroline: false, ...extra });
-      const em = props.em, ex = props.ex;
+      const em = props.em, ex = props.ex, xRange = tp ? [ex[0], ex[ex.length - 1]] : [em[0], em[em.length - 1]], yRange = tp ? [em[0], em[em.length - 1]] : [ex[0], ex[ex.length - 1]];
       for (let i = 0; i < nImg.value; i++) {
         const r = Math.floor(i / k), c = i % k, n = i + 1;
         const x0 = c / k + gx, x1 = (c + 1) / k - gx, y1 = 1 - r * ph - topPad, y0 = 1 - (r + 1) * ph + (r === R - 1 ? 0 : 0.012);
         const xk = i === 0 ? 'xaxis' : `xaxis${n}`, yk = i === 0 ? 'yaxis' : `yaxis${n}`;
-        L[xk] = ax({ domain: [x0, x1], anchor: i === 0 ? 'y' : `y${n}`, range: [em[0], em[em.length - 1]], nticks: 3, showticklabels: r === R - 1, ...(i === 0 ? {} : { matches: 'x' }),
-          title: r === R - 1 && c === Math.floor((k - 1) / 2) && k > 1 ? { text: 'Emission (nm)', font: { size: 11, color: t.text2 }, standoff: 4 } : (r === R - 1 && k === 1 ? { text: 'Emission (nm)', font: { size: 11, color: t.text2 }, standoff: 4 } : undefined) });
-        L[yk] = ax({ domain: [y0, y1], anchor: i === 0 ? 'x' : `x${n}`, range: [ex[0], ex[ex.length - 1]], nticks: 3, showticklabels: c === 0, ...(i === 0 ? {} : { matches: 'y' }),
-          title: c === 0 && r === 0 ? { text: 'Excitation (nm)', font: { size: 11, color: t.text2 }, standoff: 2 } : undefined });
+        L[xk] = ax({ domain: [x0, x1], anchor: i === 0 ? 'y' : `y${n}`, range: xRange, nticks: 3, showticklabels: r === R - 1, ...(i === 0 ? {} : { matches: 'x' }),
+          title: r === R - 1 && c === Math.floor((k - 1) / 2) && k > 1 ? { text: acrossName, font: { size: 11, color: t.text2 }, standoff: 4 } : (r === R - 1 && k === 1 ? { text: acrossName, font: { size: 11, color: t.text2 }, standoff: 4 } : undefined) });
+        L[yk] = ax({ domain: [y0, y1], anchor: i === 0 ? 'x' : `x${n}`, range: yRange, nticks: 3, showticklabels: c === 0, ...(i === 0 ? {} : { matches: 'y' }),
+          title: c === 0 && r === 0 ? { text: upName, font: { size: 11, color: t.text2 }, standoff: 2 } : undefined });
         const lab = props.labels[i];
         if (lab) L.annotations.push({ xref: 'paper', yref: 'paper', x: (x0 + x1) / 2, y: y1, xanchor: 'center', yanchor: 'bottom', text: props.highlight === i ? `<b>${lab}</b>` : lab, showarrow: false, font: { size: 11, color: props.highlight === i ? t.text : t.text2, family: t.font } });
       }
@@ -110,17 +119,17 @@ export const AeStrip = {
       const t = tokens(), [lo, hi] = range.value, k = cols.value;
       const scaleDef = props.kind === 'diverging' ? divergingScale(prefs.div) : sequentialScale(prefs.seq);
       const out = [], em = Array.from(props.em), ex = Array.from(props.ex);
-      const nem = em.length;
+      const nem = em.length, tp = !!prefs.eemTranspose, hx = tp ? ex : em, hy = tp ? em : ex;
       let mz = null;
-      if (props.mask) { mz = new Array(ex.length); for (let i = 0; i < ex.length; i++) { const r = new Float32Array(nem); for (let j = 0; j < nem; j++) r[j] = props.mask[i * nem + j] ? 1 : NaN; mz[i] = r; } }
+      if (props.mask) { mz = new Array(ex.length); for (let i = 0; i < ex.length; i++) { const r = new Float32Array(nem); for (let j = 0; j < nem; j++) r[j] = props.mask[i * nem + j] ? 1 : NaN; mz[i] = r; } if (tp) mz = transposeRows(mz); }
       props.images.forEach((im, i) => {
         if (!im) return;
         const n = i + 1, xa = i === 0 ? 'x' : `x${n}`, ya = i === 0 ? 'y' : `y${n}`;
         const last = i === props.images.length - 1;
-        out.push({ type: 'heatmap', x: em, y: ex, z: toRows(im), zmin: lo, zmax: hi, colorscale: scaleDef, xaxis: xa, yaxis: ya, zsmooth: false, hoverongaps: false, name: props.labels[i] || '',
+        out.push({ type: 'heatmap', x: hx, y: hy, z: tp ? transposeRows(toRows(im)) : toRows(im), zmin: lo, zmax: hi, colorscale: scaleDef, xaxis: xa, yaxis: ya, zsmooth: false, hoverongaps: false, name: props.labels[i] || '',
           showscale: last, colorbar: last ? { thickness: 10, len: 0.9, x: 1.01, xanchor: 'left', outlinewidth: 0, tickfont: { size: 10, color: t.text3, family: t.font }, title: { text: props.units, side: 'top', font: { size: 11, color: t.text2 } } } : undefined,
-          hovertemplate: `${(props.labels[i] || '').replace(/<[^>]*>/g, '')}<br>Em %{x:.0f} nm · Ex %{y:.0f} nm<br><b>%{z:.4g}</b> ${props.units}<extra></extra>` });
-        if (mz) out.push({ type: 'heatmap', x: em, y: ex, z: mz, zmin: 0, zmax: 1, showscale: false, hoverinfo: 'skip', xaxis: xa, yaxis: ya, zsmooth: false, colorscale: [[0, withAlpha(t.text3, t.dark ? 0.34 : 0.38)], [1, withAlpha(t.text3, t.dark ? 0.34 : 0.38)]] });
+          hovertemplate: `${(props.labels[i] || '').replace(/<[^>]*>/g, '')}<br>${tp ? 'Ex %{x:.0f} nm · Em %{y:.0f} nm' : 'Em %{x:.0f} nm · Ex %{y:.0f} nm'}<br><b>%{z:.4g}</b> ${props.units}<extra></extra>` });
+        if (mz) out.push({ type: 'heatmap', x: hx, y: hy, z: mz, zmin: 0, zmax: 1, showscale: false, hoverinfo: 'skip', xaxis: xa, yaxis: ya, zsmooth: false, colorscale: [[0, withAlpha(t.text3, t.dark ? 0.34 : 0.38)], [1, withAlpha(t.text3, t.dark ? 0.34 : 0.38)]] });
       });
       void k;
       return out;

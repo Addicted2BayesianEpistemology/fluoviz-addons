@@ -82,7 +82,7 @@ export const AeCheckTraining = {
   template: `
   <div class="col gap-12" data-ae-check-training>
     <AeVerdict :level="level" v-if="T.verdict || (T.overfit && T.overfit.words)"><span data-ae-training-verdict>{{ T.verdict || T.overfit.words }}</span> <span v-if="T.verdict && T.overfit && T.overfit.words && !T.verdict.includes(T.overfit.words)">{{ T.overfit.words }}</span></AeVerdict>
-    <div class="fp-cards4"><AeStat label="Best epoch" :value="T.best_epoch === -1 ? 'the PCA start' : (T.best_epoch !== undefined && T.best_epoch !== null ? T.best_epoch + 1 : '–')" :sub="'after ' + nTxt(T.epochs_run) + ' epochs' + (T.stopped === 'early' ? ' (stopped early)' : T.stopped === 'max' ? ' (the maximum)' : '')"/>
+    <div class="fp-cards4"><AeStat label="Best epoch" :value="T.best_epoch === -1 ? 'the PCA start' : (T.best_epoch !== undefined && T.best_epoch !== null ? T.best_epoch + 1 : '–')" :sub="'after ' + nTxt(T.epochs_run) + ' epochs' + (T.stopped === 'early' ? ' (stopped early)' : T.stopped === 'time' ? ' (time limit)' : T.stopped === 'max' ? ' (the maximum)' : '')"/>
       <AeStat label="Random starts" :value="(T.restarts || []).length" :sub="T.spread && T.spread.words ? T.spread.words : 'the best one was kept'"/></div>
     <ChartCard title="Loss during training" :table="table" filename="autoencoder-loss" help="The loss is the error the network made small while it was trained. The held-out line is the honest one. The dashed vertical line is the epoch whose network was kept.">
       <template #actions><Seg small v-model="V.what" :options="options" data-ae-loss-what/></template>
@@ -91,8 +91,8 @@ export const AeCheckTraining = {
     </ChartCard>
     <ChartCard v-if="V.what === 'beta' && sigmaTraces.length" title="Noise level of the data (σ²) during training" filename="autoencoder-sigma"><PlotlyChart :data="sigmaTraces" :layout="sigmaLayout" :height="240"/></ChartCard>
     <div class="card" data-ae-restarts-table v-if="T.restarts && T.restarts.length"><div class="card-head"><h3>Random starts</h3></div><div class="card-body">
-      <div class="table-wrap"><table class="table"><thead><tr><th>Start</th><th>Seed</th><th class="num">Variance explained (held-out)</th><th class="num">Best epoch</th><th>Kept</th></tr></thead>
-        <tbody><tr v-for="(r, i) in T.restarts" :key="i"><td>{{ i + 1 }}</td><td>{{ r.seed }}</td><td class="num">{{ pct(r.val) }}</td><td class="num">{{ r.best_epoch === -1 ? 'PCA start' : (r.best_epoch !== undefined && r.best_epoch !== null ? r.best_epoch + 1 : '–') }}</td><td>{{ r.chosen ? 'kept' : '' }}</td></tr></tbody></table></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Start</th><th>Seed</th><th class="num">Variance explained (held-out)</th><th class="num">Best epoch</th><th>Kept</th><th class="num">Epochs trained</th></tr></thead>
+        <tbody><tr v-for="(r, i) in T.restarts" :key="i"><td>{{ i + 1 }}</td><td>{{ r.seed }}</td><td class="num">{{ pct(r.val) }}</td><td class="num">{{ r.best_epoch === -1 ? 'PCA start' : (r.best_epoch !== undefined && r.best_epoch !== null ? r.best_epoch + 1 : '–') }}</td><td>{{ r.chosen ? 'kept' : '' }}</td><td class="num">{{ r.epochs_run !== undefined && r.epochs_run !== null ? nTxt(r.epochs_run) : '–' }}{{ r.stopped === 'early' ? ' (stopped early)' : r.stopped === 'time' ? ' (time limit)' : '' }}</td></tr></tbody></table></div>
       <p class="fp-note muted mt-8">The network was trained from several random starts and the one that rebuilt the held-out samples best was kept. Starts that end far apart say that the result depends on luck: look at the stability check.</p></div></div>
   </div>`,
 };

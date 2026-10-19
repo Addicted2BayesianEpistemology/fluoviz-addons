@@ -258,6 +258,75 @@ def test_one_sample_against_the_network(world):
     assert bad.status_code == 404 and "'nope' is not one of the samples" in msg(bad)
 
 
+INP_GAPS = {**INP, "fluorescence": {**INP["fluorescence"], "min_coverage": 0.5}}
+
+
+def test_a_rectangle_excised_for_some_samples_only_is_estimated_and_the_page_says_so(world):
+    p = world.S.project
+    some = [f"S{i:02d}" for i in range(0, 36, 4)]                                           # nine samples lack a rectangle; the others have all of it
+    p.add_region([300.0, 340.0], [400.0, 450.0], samples=some)
+    fit(world, latent_dim=3, input=INP_GAPS)
+    pl = A.decode(world.get(f"{B}/autoencoder-1").json())["payload"]
+    assert any("9 sample(s) miss part of the domain" in n and "estimated" in n for n in pl["notes"]) and pl["input"]["blocks"][0]["n_inputs"] > 20
+    r = p.get_result("autoencoder-1")
+    miss = np.asarray(r.variables["missing_part"], float)
+    own = np.arange(36) % 4 == 0
+    assert (miss[own] > 0.03).all() and (miss[~own] == 0).all() and "missing_part" in r.var_info and r.params["gap_weighting"] == "observed"
+    assert np.allclose(np.asarray(pl["recon"]["missing"], float), miss)                      # the Samples tab shows it as a column
+    gap = A.decode(world.get(f"{B}/autoencoder-1/sample/S04").json())
+    ok = A.decode(world.get(f"{B}/autoencoder-1/sample/S05").json())
+    assert gap["missing"]["fluorescence"] == pytest.approx(miss[4]) and "estimate of that part" in gap["missing_words"] and "the other samples show" in gap["missing_words"]
+    assert "missing" not in ok and "missing_words" not in ok
+    holes = lambda s: np.isnan(np.asarray(s["blocks"][0]["measured"], float)).sum()
+    assert holes(gap) > holes(ok) and np.isfinite(np.asarray(gap["blocks"][0]["reconstruction"], float)[~np.asarray(gap["blocks"][0]["mask"], bool)]).all()      # blank where it was cut out, filled in by the network
+    words = world.get(f"{B}/autoencoder-1/methods").json()["text"]
+    assert "9 samples lacked part of the domain" in words and "gap-aware estimate of the functional PCA" in words and "in proportion to the share of the domain that was measured" in words
+    # the saved model reads a gap like the training did
+    mid = A.decode(A.run_job(world, "/api/models", {"result": "autoencoder-1", "title": "Gaps"})["result"])["id"]
+    j2 = A.run_job(world, f"/api/models/{mid}/apply", {"select": "all", "min_coverage": 0.5})
+    assert j2["status"] == "done", j2
+    ap = p.get_result(A.decode(j2["result"])["rid"])
+    for k in ("z1", "z2", "z3"):
+        assert np.allclose(np.asarray(ap.variables[k], float), np.asarray(r.variables[k], float), rtol=1e-7, atol=1e-9)
+
+
+def test_a_network_trained_with_gaps_keeps_its_estimate_of_them_in_the_model_file(world, tmp_path):
+    p = world.S.project
+    p.add_region([300.0, 340.0], [400.0, 450.0], samples=[f"S{i:02d}" for i in range(0, 36, 4)])
+    fit(world, latent_dim=3, input=INP_GAPS)
+    r = p.get_result("autoencoder-1")
+    mid = A.decode(A.run_job(world, "/api/models", {"result": "autoencoder-1", "title": "Gaps"})["result"])["id"]
+    f = tmp_path / "gaps.fluoviz-model"
+    f.write_bytes(world.get(f"/api/models/{mid}/export").content)
+    assert world.delete(f"/api/models/{mid}").status_code == 200
+    imported = world.post("/api/models/import", json={"path": str(f)})
+    assert imported.status_code == 200, imported.text
+    j = A.run_job(world, f"/api/models/{imported.json()['id']}/apply", {"select": "all", "min_coverage": 0.5})
+    assert j["status"] == "done", j
+    ap = p.get_result(A.decode(j["result"])["rid"])
+    for k in ("z1", "z2", "z3"):
+        assert np.allclose(np.asarray(ap.variables[k], float), np.asarray(r.variables[k], float), rtol=1e-7, atol=1e-9), k          # the samples with a gap land where they did when the network was trained
+
+
+def test_the_weighting_of_samples_that_lack_a_rectangle_is_a_setting_of_the_request(world):
+    world.S.project.add_region([300.0, 340.0], [400.0, 450.0], samples=[f"S{i:02d}" for i in range(0, 36, 4)])
+    fit(world, latent_dim=3, input=INP_GAPS, gap_weighting="equal")
+    assert world.S.project.get_result("autoencoder-1").params["gap_weighting"] == "equal"
+    bad = world.post(f"{B}/fit", json={"latent_dim": 3, "input": INP_GAPS, "gap_weighting": "sometimes"})
+    assert bad.status_code == 400 and "weighting of samples that lack part of the domain" in msg(bad)
+    plain = {**INP_GAPS, "fluorescence": {**INP_GAPS["fluorescence"], "gaps": "plain"}}
+    fit(world, latent_dim=3, input=plain)
+    assert world.S.project.get_result("autoencoder-2").params["input"]["fluorescence"]["gaps"] == "plain"
+
+
+def test_without_a_gap_nothing_about_missing_parts_appears(world):
+    fit(world, latent_dim=3, input=INP)
+    pl = A.decode(world.get(f"{B}/autoencoder-1").json())["payload"]
+    r = world.S.project.get_result("autoencoder-1")
+    assert "missing" not in pl["recon"] and "missing_part" not in r.variables and not any("miss part of the domain" in n for n in pl["notes"])
+    assert "missing" not in A.decode(world.get(f"{B}/autoencoder-1/sample/S05").json()) and "lacked part of the domain" not in world.get(f"{B}/autoencoder-1/methods").json()["text"]
+
+
 def test_traversals_decode_along_a_code_without_the_data(world):
     fit(world, latent_dim=3)
     r = world.post(f"{B}/autoencoder-1/traverse", json={"code": 2, "values": [-2, 0, 2]})

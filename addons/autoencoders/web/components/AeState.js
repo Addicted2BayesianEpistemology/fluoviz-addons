@@ -5,6 +5,8 @@ import { markRaw } from 'vue';
 import { createFpca } from '/static/js/components/FpcaCtx.js';
 import { defaultSpec, variablesOf, NAMES } from '/static/js/components/FpcaState.js';
 import { useJob } from '/static/js/jobs.js';
+import { store } from '/static/js/store.js';
+import { freshNl } from './AeNlState.js';
 
 export const BASE = '/api/addon/autoencoders';
 
@@ -39,8 +41,11 @@ export function netDefault() {
     skip: true,                                                // the linear shortcut: the network starts as the PCA of the training samples
     allow_few: false,                                          // the person agreed to train on fewer than 12 samples (never fewer than 4)
     vae: { beta: 1, warmup: null, free_bits: 0, sigma_mode: 'learned', sigma: 0.1, prior: 'normal', n_components: 3 },
-    smoothify: 0, smoothify_metric: 'smooth',
+    smoothify: 0, smoothify_metric: 'smooth', gap_weighting: 'observed',
     epochs: 600, patience: 60, val_fraction: 0.2, folds: 5, lr: 0.001, batch_size: null, n_restarts: 3, seed: 0, title: '',
+    // advanced training settings (Step 6): every default is what the training always did
+    stop_rule: 'validation', min_epochs: 0, min_delta_pct: 0.1, val_window: 1, max_minutes: null, restore_best: true,
+    lr_schedule: 'cosine', lr_final: 0.01, grad_clip: 5, kfold_below: 30, final_mode: 'auto', final_number: 100, final_min: 20,
     memory: { fluorescence: 'gp', absorbance: 'gp' },          // the functional representation chosen before "On the pixels" was switched on
   };
 }
@@ -85,7 +90,8 @@ function freshAe() {
     lossView: { what: 'total' },
     stabView: { n_runs: 5, bootstrap: false },
     latScanView: { max_dim: 8, both: false },
-    sample: null,                                                  // the sample looked at (a click in the latent plot, the table of samples)
+    nl: freshNl(store.project),                                    // the choices of the tab "Nonlinear effects" (remembered with the project: AeNlState.js)
+    sample: null,                                                 // the sample looked at (a click in the latent plot, the table of samples)
     scans: {},                                                     // kind -> { key, source, ans, error, busy, rid }
     extra: {},                                                     // traversals, interpolation, generation, sensitivity, anomalies, relate, methods ...
     gallery: null,
@@ -142,6 +148,15 @@ export function trainIssues(spec) {
   if (n.batch_size !== null && n.batch_size !== '' && !inRange(n.batch_size, 2, 1024)) out.push('The batch size must be between 2 and 1024 (or empty for automatic).');
   if (!inRange(n.n_restarts, 1, 10)) out.push('The number of random starts must be between 1 and 10.');
   if (!inRange(n.seed, 0, 2147483647)) out.push('The random seed must be a whole number between 0 and 2 147 483 647.');
+  if (!inRange(n.min_epochs, 0, 100000)) out.push('The least number of epochs before training may stop must be a whole number from 0 up.');
+  if (!inRange(n.min_delta_pct, 0, 50)) out.push('The smallest improvement that counts must be between 0 and 50 %.');
+  if (!inRange(n.val_window, 1, 100)) out.push('The number of epochs the loss is averaged over must be between 1 and 100.');
+  if (n.max_minutes !== null && n.max_minutes !== '' && !inRange(n.max_minutes, 0.05, 100000)) out.push('The time limit must be at least 0.05 minutes (or empty for no limit).');
+  if (!inRange(n.lr_final, 0.0001, 1)) out.push('The final learning rate must be between 0.0001 and 1 (a share of the learning rate).');
+  if (!inRange(n.grad_clip, 0, 1000)) out.push('The gradient clipping must be between 0 (off) and 1000.');
+  if (!inRange(n.kfold_below, 0, 100000)) out.push('The number of samples below which k-fold validation is used must be a whole number from 0 up.');
+  if (n.final_mode === 'number' && !inRange(n.final_number, 1, 100000)) out.push('The number of epochs of the final networks must be a whole number from 1 up.');
+  if (!inRange(n.final_min, 1, 100000)) out.push('The least number of epochs of the final networks must be a whole number from 1 up.');
   return out;
 }
 
@@ -190,9 +205,12 @@ export function requestBody(spec = fp.spec, defaults = fp.ae.defaults, extra = {
     family: n.family, latent_dim: latentOf(n, defaults), size: n.size, hidden: hiddenOf(n), activation: n.activation,
     dropout: Number(n.dropout), weight_decay: Number(n.weight_decay), corruption: { noise: Number(n.noise), mask: Number(n.mask) }, skip: !!n.skip, allow_few_samples: !!n.allow_few,
     vae: { beta: Number(n.vae.beta), warmup: intOrNull(n.vae.warmup), free_bits: Number(n.vae.free_bits), sigma: n.vae.sigma_mode === 'learned' ? 'learned' : Number(n.vae.sigma), prior: n.vae.prior, n_components: Math.round(Number(n.vae.n_components)) },
-    smoothify: Number(n.smoothify), smoothify_metric: n.smoothify_metric,
+    smoothify: Number(n.smoothify), smoothify_metric: n.smoothify_metric, gap_weighting: n.gap_weighting === 'equal' ? 'equal' : 'observed',
     epochs: Math.round(Number(n.epochs)), patience: Math.round(Number(n.patience)), val_fraction: Number(n.val_fraction), folds: Math.round(Number(n.folds)),
     lr: Number(n.lr), batch_size: intOrNull(n.batch_size), n_restarts: Math.round(Number(n.n_restarts)), seed: Math.round(Number(n.seed)),
+    stop_rule: n.stop_rule, min_epochs: Math.round(Number(n.min_epochs)), min_delta: Number((Number(n.min_delta_pct) / 100).toPrecision(10)), val_window: Math.round(Number(n.val_window)),
+    max_minutes: n.max_minutes === null || n.max_minutes === '' ? null : Number(n.max_minutes), restore_best: !!n.restore_best, lr_schedule: n.lr_schedule, lr_final: Number(n.lr_final),
+    grad_clip: Number(n.grad_clip), kfold_below: Math.round(Number(n.kfold_below)), final_epochs: n.final_mode === 'number' ? Math.round(Number(n.final_number)) : n.final_mode, final_epochs_min: Math.round(Number(n.final_min)),
     input: { variables: names }, title: String(n.title || '').trim(),
   };
   for (const name of names) body.input[name] = ctx.varBody(name, spec);
@@ -206,7 +224,8 @@ export function specFromRequest(p) {
   for (const name of names) {
     const v = p.input && p.input[name]; if (!v) continue;
     s[name].transform = v.transform || 'none';
-    if (name === 'fluorescence') s[name].min_coverage = v.min_coverage ?? 0.9; else s[name].processed = v.processed !== false;
+    if (name === 'fluorescence') s[name].min_coverage = v.min_coverage ?? 0.5; else s[name].processed = v.processed !== false;
+    s[name].gaps = v.gaps === 'plain' ? 'plain' : 'auto';
     const b = v.basis || {}, t = s[name].basis;
     t.kind = b.kind || 'gp';
     if (b.kind === 'gp') {
@@ -221,8 +240,11 @@ export function specFromRequest(p) {
     if (sm.lambda) s[name].smooth.lam = [].concat(sm.lambda).map(Number);
   }
   Object.assign(n, { family: p.family || 'ae', latent_dim: p.latent_dim ?? null, size: p.size || 'small', activation: p.activation || 'silu', dropout: p.dropout ?? 0, weight_decay: p.weight_decay ?? 0.001,
-    smoothify: p.smoothify ?? 0, smoothify_metric: p.smoothify_metric || 'smooth', epochs: p.epochs ?? 600, patience: p.patience ?? 60, val_fraction: p.val_fraction ?? 0.2, folds: p.folds ?? 5,
-    lr: p.lr ?? 0.001, batch_size: p.batch_size ?? null, n_restarts: p.n_restarts ?? 3, seed: p.seed ?? 0, title: p.title || '', skip: p.skip !== false, allow_few: !!p.allow_few_samples });
+    smoothify: p.smoothify ?? 0, smoothify_metric: p.smoothify_metric || 'smooth', gap_weighting: p.gap_weighting === 'equal' ? 'equal' : 'observed', epochs: p.epochs ?? 600, patience: p.patience ?? 60, val_fraction: p.val_fraction ?? 0.2, folds: p.folds ?? 5,
+    lr: p.lr ?? 0.001, batch_size: p.batch_size ?? null, n_restarts: p.n_restarts ?? 3, seed: p.seed ?? 0, title: p.title || '', skip: p.skip !== false, allow_few: !!p.allow_few_samples,
+    stop_rule: p.stop_rule || 'validation', min_epochs: p.min_epochs ?? 0, min_delta_pct: Math.round((p.min_delta ?? 0.001) * 1e5) / 1e3, val_window: p.val_window ?? 1, max_minutes: p.max_minutes ?? null,
+    restore_best: p.restore_best !== false, lr_schedule: p.lr_schedule || 'cosine', lr_final: p.lr_final ?? 0.01, grad_clip: p.grad_clip ?? 5, kfold_below: p.kfold_below ?? 30,
+    final_mode: typeof p.final_epochs === 'number' ? 'number' : (p.final_epochs || 'auto'), final_number: typeof p.final_epochs === 'number' ? p.final_epochs : 100, final_min: p.final_epochs_min ?? 20 });
   if (Array.isArray(p.hidden)) n.hidden = p.hidden.join(', ');
   if (p.corruption) { n.noise = p.corruption.noise ?? 0; n.mask = p.corruption.mask ?? 0; }
   if (p.vae) {

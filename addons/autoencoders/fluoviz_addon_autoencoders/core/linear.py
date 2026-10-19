@@ -57,17 +57,28 @@ class PCAModel:
         return self.Vw[:k] / self.sw
 
 
-def fit_pca(X: np.ndarray, M: np.ndarray | None, omega: np.ndarray, k_max: int, n_iter: int = 40) -> PCAModel:
-    """Weighted PCA of the training coordinates ``X`` ``(n, P)`` (``M``: observed mask or None) with weights ``omega`` ``(P,)``; ``k_max`` components."""
+def fit_pca(X: np.ndarray, M: np.ndarray | None, omega: np.ndarray, k_max: int, n_iter: int = 40, sample_w: np.ndarray | None = None) -> PCAModel:
+    """Weighted PCA of the training coordinates ``X`` ``(n, P)`` (``M``: observed mask or None) with weights ``omega`` ``(P,)``; ``k_max`` components.  ``sample_w`` ``(n,)``: the weight of every
+    SAMPLE (None = all alike; the network's loss gives a sample that lacks part of the domain less weight): the mean and the components are the weighted ones."""
     X = np.asarray(X, float)
     n, P = X.shape
     omega = np.maximum(np.asarray(omega, float), 1e-300)
     sw = np.sqrt(omega)
     obs = np.ones_like(X, bool) if M is None else (np.isfinite(X) & np.asarray(M, bool))
-    cnt = obs.sum(axis=0)
-    mean = np.where(cnt > 0, np.where(obs, X, 0.0).sum(axis=0) / np.maximum(cnt, 1), 0.0)
+    if sample_w is None:
+        rw = None
+        cnt = obs.sum(axis=0)
+        mean = np.where(cnt > 0, np.where(obs, X, 0.0).sum(axis=0) / np.maximum(cnt, 1), 0.0)
+    else:
+        w = np.maximum(np.asarray(sample_w, float), 0.0)
+        w = w / max(float(w.mean()), 1e-300)
+        rw = np.sqrt(w)[:, None]
+        cnt = (obs * w[:, None]).sum(axis=0)
+        mean = np.where(cnt > 0, (np.where(obs, X, 0.0) * w[:, None]).sum(axis=0) / np.maximum(cnt, 1e-300), 0.0)
     k_max = int(max(1, min(k_max, n - 1, P)))
     Yw = np.where(obs, X - mean, 0.0) * sw
+    if rw is not None:
+        Yw = Yw * rw                                                  # the rows weighted: the covariance of the rows is the weighted covariance of the samples
     fill = Yw.copy()
     if not obs.all():                                                 # EM: the unobserved coordinates are filled with what the first k_max components say
         for _ in range(n_iter):

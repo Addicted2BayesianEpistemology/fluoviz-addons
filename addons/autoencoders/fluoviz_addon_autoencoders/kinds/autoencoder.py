@@ -150,7 +150,7 @@ def judge(model: AEModel, ev: Evaluation, ref: dict, opts: dict) -> Judgement:
                                              f"something the training samples did not have{_which(names, np.nan_to_num(share[i]))}, or it was measured differently.")
     st.flag(jd.typ_out, "outside", lambda i: f"Its code is unusual (typicality {D.g(jd.p[i])}, below {D.g(thr)}): the network gives it a code far from where the training samples lie, so the "
                                              "code may be less meaningful even if the reconstruction looks fine.")
-    st.flag(ev.gaps & u, "ok", lambda i: "Some pixels of this sample were not measured: it was smoothed (or read) on the pixels it has, so its code is less certain "
+    st.flag(ev.gaps & u, "ok", lambda i: "Some pixels of this sample were not measured: its code was worked out from the pixels it has (a functional network also uses what the other samples show), so it is less certain "
                                          f"({D.percent(1 - float(np.nanmin(ev.coverage[i])), 2)} of the domain missing).")
     jd.status = st.array()
     jd.reasons = st.reasons

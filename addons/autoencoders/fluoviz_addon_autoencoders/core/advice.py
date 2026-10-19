@@ -29,7 +29,7 @@ def count_parameters(P: int, d: int, hidden: list[int], family: str = "ae", skip
 
 def estimate_seconds(cfg: Config, n: int, P: int) -> float:
     """A rough time for the whole training (all random starts, and the folds when there are few samples) on a laptop CPU: every run is assumed to use about 70 % of the epochs
-    (early stopping).  Within a factor of two of what is measured on a 4-core computer."""
+    (early stopping; all of them when early stopping is off), at most the time limit of one network when there is one.  Within a factor of two of what is measured on a 4-core computer."""
     hidden = cfg.hidden_widths()
     n_par = count_parameters(P, cfg.latent_dim, hidden, cfg.family, cfg.skip)
     kfold = n < cfg.kfold_below
@@ -40,7 +40,11 @@ def estimate_seconds(cfg: Config, n: int, P: int) -> float:
     t_step = FEEDBACK_SECONDS_PER_STEP + flops_step * SECONDS_PER_FLOP + n_par * SECONDS_PER_PARAMETER
     t_epoch = steps * t_step + 2.0 * (n * 2.0 * n_par * SECONDS_PER_FLOP) + 2.0e-4          # + the evaluation of the training and validation sets
     runs = cfg.n_restarts + (cfg.folds if kfold else 0)
-    return float(runs * 0.7 * cfg.epochs * t_epoch)
+    share = 0.7 if cfg.uses_early_stopping() else 1.0                    # (without early stopping every network trains all its epochs)
+    one = share * cfg.epochs * t_epoch
+    if cfg.max_minutes is not None:
+        one = min(one, 60.0 * cfg.max_minutes)
+    return float(runs * one)
 
 
 def words_for_seconds(s: float) -> str:

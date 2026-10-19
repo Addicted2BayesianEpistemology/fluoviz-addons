@@ -4,7 +4,7 @@ Optional tools for FluoViz (an explorer for fluorescence excitation-emission mat
 
 | add-on | what it adds | extra libraries |
 |---|---|---|
-| `autoencoders` | autoencoders (AE) and variational autoencoders (VAE) for EEMs and absorbance, also **functional** versions on the coefficients of the Functional-PCA bases with a `smoothify` penalty; latent-space tools, anomaly detection, saved models | PyTorch (CPU), about 130 MB |
+| `autoencoders` | autoencoders (AE) and variational autoencoders (VAE) for EEMs and absorbance, also **functional** versions on the coefficients of the Functional-PCA bases with a `smoothify` penalty; latent-space tools, tools that show which nonlinear trend each code fits, anomaly detection, saved models; advanced training settings; samples that lack part of the domain are handled | PyTorch (CPU), about 130 MB |
 
 Specification of the first add-on: [`addons/autoencoders/SPEC.md`](addons/autoencoders/SPEC.md); user note: [`docs/README_user.md`](addons/autoencoders/docs/README_user.md).  The framework that loads add-ons (manifest, index, the `register(api)` hook) is documented in FluoViz itself (`docs/modules/addons.md`, `docs/modules/addons_core.md`).
 

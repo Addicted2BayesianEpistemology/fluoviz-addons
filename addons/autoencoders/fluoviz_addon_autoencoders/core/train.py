@@ -18,6 +18,11 @@ The loss (SPEC section 3.3), per sample, with ``omega`` the weights of the L2 me
   the output that avoids it).  The first random start begins at the PCA of the training samples (``L_e`` / ``L_d`` = the principal directions that carry signal, whitened; the MLP branches output
   zero; a code without signal starts at zero and, for a VAE, at the prior), and that start is itself a candidate for the best weights (``best_epoch == -1``): on held-out samples the kept
   network is never worse than the PCA with the same number of codes.  The other starts begin at random weights.  ``skip = False`` is the classical autoencoder.
+* when training stops (``Config.stop_rule``): ``validation`` (default) the loss on the held-out samples has not improved by ``min_delta`` (0.1 %) for ``patience`` epochs and at least ``min_epochs`` have run (the
+  loss can be averaged over ``val_window`` epochs first); ``training``: the same on the training loss (no held-out check); ``never``: all ``epochs`` are trained.  Either way the weights of the best epoch are
+  restored (``restore_best``), a time limit per network (``max_minutes``) can stop it, and the learning rate follows ``lr_schedule`` (cosine over ``epochs`` | cosine over the epochs this network is
+  planned to train | constant | halved when the loss stalls).  With k-fold validation the final networks train for the epochs the folds found (``final_epochs``: "auto", "max" or a number).  The defaults are
+  what the training did before these settings existed.
 * the mixture prior (VaDE-like) replaces the KL by ``E_q[log q(z|x) - log p(z)]`` with ``p(z) = sum_c pi_c N(mu_c, sigma_c^2)`` (one-sample estimate); the mixture is initialised by a
   Gaussian mixture fitted to the codes after a first stage with the normal prior.
 """
@@ -139,6 +144,7 @@ class _Data:
         self.X = torch.as_tensor(np.where(np.isfinite(X), X, 0.0), dtype=torch.float32)
         self.M = None
         self.F = None
+        self.W = None if td.sw is None else torch.as_tensor(np.asarray(td.sw, float)[idx], dtype=torch.float32)
         if td.M is not None:
             M = td.M[idx] & np.isfinite(X)
             if not M.all():
@@ -172,14 +178,13 @@ class _Loss:
             else:
                 self.q.append(("dense", torch.as_tensor(q["Q"], dtype=torch.float32), K))
 
-    def rec(self, x, xh, m, f):
-        """Per-sample reconstruction error ``(B,)``."""
+    def rec(self, x, xh, m, f, w=None):
+        """Per-sample reconstruction error ``(B,)``; ``w`` ``(B,)``: the weight of every sample (a sample that lacks part of the domain counts in proportion to what was measured)."""
         e2 = (x - xh) ** 2 * self.omega
         if m is not None:
             e2 = e2 * m
-        if f is None:
-            return e2.sum(dim=1)
-        return sum(e2[:, sl].sum(dim=1) * f[:, j] for j, sl in enumerate(self.slices))
+        out = e2.sum(dim=1) if f is None else sum(e2[:, sl].sum(dim=1) * f[:, j] for j, sl in enumerate(self.slices))
+        return out if w is None else out * w
 
     def pen(self, xh):
         """Per-sample ``smoothify`` penalty ``(B,)`` (average over the blocks of ``xhat' Q xhat / K``)."""
@@ -344,6 +349,7 @@ def _objective(net, loss: _Loss, cfg: Config, mean, data: _Data, rows, *, train:
     x = data.X[rows]
     m = None if data.M is None else data.M[rows]
     f = None if data.F is None else data.F[rows]
+    w = None if data.W is None else data.W[rows]
     u = (x - mean) / scale
     if m is not None:
         u = u * m
@@ -358,7 +364,7 @@ def _objective(net, loss: _Loss, cfg: Config, mean, data: _Data, rows, *, train:
     s = cfg.smoothify
     if not net.vae:
         xh = net.decode(mu) * scale + mean
-        rec_i = loss.rec(x, xh, m, f)
+        rec_i = loss.rec(x, xh, m, f, w)
         pen_i = loss.pen(xh) if s > 0 else None
         rec = rec_i.mean()
         pen = pen_i.mean() if pen_i is not None else torch.zeros(())
@@ -369,7 +375,7 @@ def _objective(net, loss: _Loss, cfg: Config, mean, data: _Data, rows, *, train:
         eps = torch.randn(mu.shape, generator=corrupt_gen)
     z = mu + torch.exp(0.5 * lv) * eps
     xh = net.decode(z) * scale + mean
-    rec_i = loss.rec(x, xh, m, f)
+    rec_i = loss.rec(x, xh, m, f, w)
     pen_i = loss.pen(xh) if s > 0 else None
     rec = rec_i.mean()
     pen = pen_i.mean() if pen_i is not None else torch.zeros(())
@@ -392,7 +398,7 @@ def _objective(net, loss: _Loss, cfg: Config, mean, data: _Data, rows, *, train:
     out.update(loss=obj, rec=rec, pen=pen, kl=kl.detach(), sigma2=sig2.detach())
     if not train:
         with torch.no_grad():
-            out["rec_det"] = loss.rec(x, net.decode(mu) * scale + mean, m, f).mean()
+            out["rec_det"] = loss.rec(x, net.decode(mu) * scale + mean, m, f, w).mean()
     return out
 
 
@@ -415,9 +421,9 @@ def _evaluate(net, loss, cfg, mean, data: _Data, beta, sigma_fixed, mix_active, 
     return {k: v / data.n for k, v in tot.items()}
 
 
-def _lr_at(epoch: int, epochs: int, lr: float) -> float:
-    """Cosine decay from ``lr`` to ``0.01 lr`` over the planned epochs."""
-    lo = 0.01 * lr
+def _lr_at(epoch: int, epochs: int, lr: float, final: float = 0.01) -> float:
+    """Cosine decay from ``lr`` to ``final * lr`` (default 0.01) over the planned epochs."""
+    lo = final * lr
     return lo + 0.5 * (lr - lo) * (1.0 + math.cos(math.pi * min(epoch, epochs) / max(epochs, 1)))
 
 
@@ -514,7 +520,11 @@ def _train_run(td: TrainData, tr_idx, va_idx, cfg: Config, n_eff: int, seed: int
     gen = torch.Generator().manual_seed(seed + 7919)
     cgen = torch.Generator().manual_seed(seed + 104729)
     best_val, best_state, best_epoch, bad = math.inf, None, -1, 0
-    if pca_start and vad is not None and not vae:
+    rule = cfg.stop_rule
+    watch = "train" if rule == "training" else ("val" if vad is not None else None)  # which loss decides what the best epoch is and when training stops (None: it does not)
+    can_stop = rule != "never"
+    recent: list = []                                                                # the last monitored losses (``cfg.val_window`` of them are averaged)
+    if pca_start and watch == "val" and not vae:
         # the start (the PCA of the training samples, a purely linear network) is the first candidate: the network that is kept is never worse than the linear one on the held-out samples
         v0 = _evaluate(net, loss, cfg, mean, vad, beta_final, sigma_fixed, False)
         best_val, best_epoch = v0["loss"], -1
@@ -522,9 +532,17 @@ def _train_run(td: TrainData, tr_idx, va_idx, cfg: Config, n_eff: int, seed: int
     history: list = []
     mix_on = False
     stopped = "max"
-    last_val = None
+    t_start = time.time()
+    lr_scale, bad_lr, best_lr = 1.0, 0, math.inf                                     # the 'plateau' schedule: halve the learning rate when the loss stalls
     for epoch in range(int(stop_at)):
-        lr = _lr_at(epoch, cfg.epochs, cfg.lr)
+        if cfg.lr_schedule == "cosine":
+            lr = _lr_at(epoch, cfg.epochs, cfg.lr, cfg.lr_final)
+        elif cfg.lr_schedule == "cosine_run":
+            lr = _lr_at(epoch, int(stop_at), cfg.lr, cfg.lr_final)
+        elif cfg.lr_schedule == "constant":
+            lr = cfg.lr
+        else:
+            lr = cfg.lr * lr_scale
         for gp in opt.param_groups:
             gp["lr"] = lr
         beta_t = beta_final * (min(1.0, (epoch + 1) / warm) if warm > 0 else 1.0)
@@ -561,28 +579,45 @@ def _train_run(td: TrainData, tr_idx, va_idx, cfg: Config, n_eff: int, seed: int
         if not math.isfinite(tr["loss"]):
             raise AutoencoderError("The training diverged (the loss is not a number). Lower the learning rate, or use a smaller network or more weight decay.")
         stop = False
-        if va is not None:
-            last_val = va["loss"]
+        mon = tr["loss"] if watch == "train" else (va["loss"] if (watch == "val" and va is not None) else None)
+        if mon is not None:
+            recent.append(mon)
+            smooth = float(np.mean(recent[-cfg.val_window:])) if cfg.val_window > 1 else mon          # the loss the decisions are made on
             if epoch >= first_eligible:
-                if not math.isfinite(best_val) or va["loss"] < best_val - 1e-3 * (abs(best_val) + 1e-3 * scale):        # better by at least 0.1 % (relative)
-                    best_val, best_epoch, bad = va["loss"], epoch, 0
+                if not math.isfinite(best_val) or smooth < best_val - cfg.min_delta * (abs(best_val) + 1e-3 * scale):        # better by at least ``min_delta`` (relative; 0.1 % by default)
+                    best_val, best_epoch, bad = smooth, epoch, 0
                     best_state = {k: v.detach().clone() for k, v in net.state_dict().items()}
                     rec["best"] = True
                 else:
                     bad += 1
-                    if bad >= cfg.patience:
+                    if can_stop and bad >= cfg.patience and epoch + 1 >= cfg.min_epochs:
                         stop, stopped = True, "early"
+            if cfg.lr_schedule == "plateau":
+                if not math.isfinite(best_lr) or smooth < best_lr - cfg.min_delta * (abs(best_lr) + 1e-3 * scale):
+                    best_lr, bad_lr = smooth, 0
+                else:
+                    bad_lr += 1
+                    if bad_lr >= max(3, cfg.patience // 4):
+                        lr_scale, bad_lr = max(cfg.lr_final, lr_scale * 0.5), 0
+        elif cfg.lr_schedule == "plateau":                                          # nothing is monitored (the final networks of the k-fold validation): the training loss
+            if not math.isfinite(best_lr) or tr["loss"] < best_lr - cfg.min_delta * (abs(best_lr) + 1e-3 * scale):
+                best_lr, bad_lr = tr["loss"], 0
+            else:
+                bad_lr += 1
+                if bad_lr >= max(3, cfg.patience // 4):
+                    lr_scale, bad_lr = max(cfg.lr_final, lr_scale * 0.5), 0
+        if not stop and cfg.max_minutes is not None and time.time() - t_start >= 60.0 * cfg.max_minutes:
+            stop, stopped = True, "time"
         history.append(rec)
         if hist_cb is not None:
             hist_cb(rec)
         if stop:
             break
     epochs_run = len(history)
-    if vad is not None and best_state is not None:
+    if cfg.restore_best and best_state is not None and watch is not None:
         net.load_state_dict(best_state)
-    else:
+    else:                                                                            # nothing was monitored, or the weights of the last epoch are wanted
         best_epoch = epochs_run - 1
-        best_val = last_val if last_val is not None else history[-1]["train"]
     tr = _evaluate(net, loss, cfg, mean, trd, beta_final, sigma_fixed, mix_on)
     va = _evaluate(net, loss, cfg, mean, vad, beta_final, sigma_fixed, mix_on) if vad is not None else None
     if vae:
@@ -590,7 +625,7 @@ def _train_run(td: TrainData, tr_idx, va_idx, cfg: Config, n_eff: int, seed: int
     else:
         sig2 = None
     net.eval()
-    return _Run(net, {k: v.detach().clone() for k, v in net.state_dict().items()}, history, int(best_epoch), epochs_run, float(best_val if vad is not None else tr["loss"]), tr, va, stopped, seed, mean_np, sig2, scale_np)
+    return _Run(net, {k: v.detach().clone() for k, v in net.state_dict().items()}, history, int(best_epoch), epochs_run, float(va["loss"] if va is not None else tr["loss"]), tr, va, stopped, seed, mean_np, sig2, scale_np)
 
 
 PCA_FLOOR = 1e-3        # principal directions with less than this share of the variance of the first one are not part of the linear start (see _pca_init)
@@ -605,7 +640,7 @@ def _pca_init(net, td: TrainData, tr_idx, mean_np: np.ndarray, scale_np: np.ndar
     X = td.X[np.asarray(tr_idx)]
     obs = np.ones_like(X, bool) if td.M is None else (td.M[np.asarray(tr_idx)] & np.isfinite(X))
     u = np.where(obs, (X - mean_np) / scale_np, 0.0)
-    m = lin.fit_pca(u, None if obs.all() else obs, np.ones(td.P), d)
+    m = lin.fit_pca(u, None if obs.all() else obs, np.ones(td.P), d, sample_w=td.sw_of(tr_idx))
     k = m.Vw.shape[0]
     lam = np.maximum(m.lam[:k], 1e-300)
     use = lam >= PCA_FLOOR * lam[0]                                        # the directions that carry signal; the others (noise) are left at zero: their codes start at the prior
@@ -699,7 +734,7 @@ def fit(config, data, progress=None, history_path=None) -> TrainResult:
     restored).  Fewer: k-fold validation (every sample is predicted by a network that did not see it: the honest numbers), then ``n_restarts`` networks on ALL samples for the number of
     epochs the folds found; the one with the lowest training loss is kept."""
     cfg = config if isinstance(config, Config) else Config.from_dict(config)
-    td = data.train_data(cfg.smoothify_metric) if hasattr(data, "train_data") else data
+    td = data.train_data(cfg.smoothify_metric, cfg.gap_weighting) if hasattr(data, "train_data") else data
     cfg.check_samples(td.n)
     if cfg.latent_dim >= td.P:
         raise AutoencoderError(f"The number of codes ({cfg.latent_dim}) must be smaller than the number of inputs ({td.P}).")
@@ -738,6 +773,10 @@ def _fit(cfg: Config, td: TrainData, progress, hist: HistoryWriter) -> TrainResu
     hist.write({"event": "start", "mode": split["mode"], "n": n, "n_train": len(split["train"]), "n_val": len(split["val"]), "folds": F, "restarts": R, "epochs": cfg.epochs,
                 "family": cfg.family, "latent_dim": cfg.latent_dim, "threads": nthreads})
     notes: list[str] = []
+    if td.sw is not None:
+        k = int((np.asarray(td.sw) < 0.995 * float(np.max(td.sw))).sum())
+        notes.append(f"{k} of the {n} samples lack part of the domain: their coefficients were estimated, not measured, so they count in proportion to the share that was measured "
+                     "(the setting 'Weigh samples that lack part of the domain' in the advanced network settings changes that).")
     spec_blocks = [dict(b) for b in td.blocks]
     all_hist: list = []
     fold_info: list = []
@@ -767,17 +806,23 @@ def _fit(cfg: Config, td: TrainData, progress, hist: HistoryWriter) -> TrainResu
             err_oof[vi], per_oof[vi], per0_oof[vi], null_all[vi], fold_of[vi] = nm["error"], nm["error_blocks"], _null_blocks(spec, arrays, td, vi), nm["null"], f
             if "kl" in nm:
                 kl_oof[vi] = nm["kl"]
-            pm = lin.fit_pca(td.X[tr_i], None if td.M is None else td.M[tr_i], td.omega, pca_k)
+            pm = lin.fit_pca(td.X[tr_i], None if td.M is None else td.M[tr_i], td.omega, pca_k, sample_w=td.sw_of(tr_i))
             pca_err_oof[vi] = lin.pca_errors(pm, td.X[vi], None if td.M is None else td.M[vi], td.omega, td.blocks, [pca_k])[pca_k]
             best_epochs.append(run.best_epoch + 1)
             fold_info.append({"fold": f, "best_epoch": run.best_epoch, "epochs_run": run.epochs_run, "val_error": float(nm["error"].mean()), "evr": evr(nm["error"], nm["null"]), "stopped": run.stopped})
             all_hist.append({"restart": 0, "fold": f, "history": [_light(r) for r in run.history]})
             hist.write({"event": "run_end", **tag, "best_epoch": run.best_epoch, "epochs_run": run.epochs_run, "val": run.val_loss})
             done_runs[0] += 1
-        E = int(max(20, round(float(np.median(best_epochs)))))
+        E = int(max(cfg.final_epochs_min, round(float(np.median(best_epochs)))))
         if cfg.family == "vae":
             E = int(max(E, cfg.warmup_epochs() + 10))
-        notes.append(f"With {n} samples the network was checked by {F}-fold validation: every sample was rebuilt by a network that had not seen it. The final network was trained on all samples for {E} epochs, the number the folds found.")
+        if cfg.final_epochs == "max":
+            E, why = int(cfg.epochs), "the maximum number of epochs, as chosen"
+        elif cfg.final_epochs != "auto":
+            E, why = int(cfg.final_epochs), "the number of epochs chosen"
+        else:
+            why = "the number the folds found"
+        notes.append(f"With {n} samples the network was checked by {F}-fold validation: every sample was rebuilt by a network that had not seen it. The final network was trained on all samples for {E} epochs, {why}.")
     else:
         E = cfg.epochs
     # ------------------------------------------------------------ the random starts
@@ -845,7 +890,7 @@ def _fit(cfg: Config, td: TrainData, progress, hist: HistoryWriter) -> TrainResu
         evr_val = evr(e_val, n_val)
         evr_blocks_val = _evr_blocks(allnum["error_blocks"][vi], per0_all[vi], names)
         tr_sel = np.asarray(split["train"], int)
-        pm = lin.fit_pca(td.X[tr_sel], None if td.M is None else td.M[tr_sel], td.omega, pca_k)
+        pm = lin.fit_pca(td.X[tr_sel], None if td.M is None else td.M[tr_sel], td.omega, pca_k, sample_w=td.sw_of(tr_sel))
         pe = lin.pca_errors(pm, td.X, td.M, td.omega, td.blocks, [pca_k])[pca_k]
         pca_val = evr(pe[vi], allnum["null"][vi])
         pca_err_oof[vi] = pe[vi]
@@ -855,7 +900,7 @@ def _fit(cfg: Config, td: TrainData, progress, hist: HistoryWriter) -> TrainResu
         pca_err_all = pe
     evr_train = evr(allnum["error"][tr_sel], allnum["null"][tr_sel])
     if kfold:
-        pm = lin.fit_pca(td.X, td.M, td.omega, pca_k)
+        pm = lin.fit_pca(td.X, td.M, td.omega, pca_k, sample_w=td.sw_of())
         pe_tr = lin.pca_errors(pm, td.X, td.M, td.omega, td.blocks, [pca_k])[pca_k]
         pca_train = evr(pe_tr, allnum["null"])
     else:

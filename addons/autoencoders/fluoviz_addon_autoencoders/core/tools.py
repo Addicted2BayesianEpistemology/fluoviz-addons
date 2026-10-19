@@ -55,19 +55,24 @@ def traverse(spec: ModelSpec, arrays: dict, codes_ref: np.ndarray, dims=None, va
 # ----------------------------------------------------------------------------- Jacobian and sensitivity
 def jacobian(spec: ModelSpec, arrays: dict, Z: np.ndarray) -> np.ndarray:
     """The Jacobian of the decoder, analytic through the layers: ``(n, P, d)`` = d(reconstruction in the network coordinates) / d(code) at every row of ``Z`` ``(n, d)``."""
-    net = fw.Network(spec, arrays)
+    return jacobian_net(fw.Network(spec, arrays), Z)
+
+
+def jacobian_net(net: "fw.Network", Z: np.ndarray) -> np.ndarray:
+    """:func:`jacobian` for a network that is already built (``core.nonlinear`` calls it many times)."""
+    spec = net.spec
     Z = np.atleast_2d(np.asarray(Z, float))
     _, pre = net.decode_with_trace(Z)
     dact = net.dact_dec
     J = None                                                            # (n, h, d)
     for i, (W, _) in enumerate(net.dec):
         g = dact(pre[i])                                                # (n, h)
-        J = g[:, :, None] * (W[None] if J is None else np.einsum("hk,nkd->nhd", W, J))
+        J = g[:, :, None] * (W[None] if J is None else W @ J)
     Wo, bo = net.out
     if J is None:
         Jo = np.broadcast_to(Wo[None], (Z.shape[0],) + Wo.shape).copy()
     else:
-        Jo = np.einsum("ph,nhd->npd", Wo, J)
+        Jo = Wo @ J                                                       # (P, h) @ (n, h, d) -> (n, P, d): one matrix product per sample
     if net.lin_dec is not None:
         Jo = Jo + net.lin_dec[None]
     if spec.output_activation != "linear":

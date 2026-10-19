@@ -34,7 +34,7 @@ export const AeSampleView = {
     const slot = computed(() => (A.value.extra.samples ? A.value.extra.samples[`${A.value.resRid}|${props.sid}|f`] || null : null));
     const d = computed(() => (slot.value ? slot.value.data : null));
     onMounted(() => loadSample(props.sid));
-    watch(() => [props.sid, A.value.resRid], () => loadSample(props.sid));
+    watch(() => [props.sid, A.value.resRid, (fp.stale || []).join('|')], () => loadSample(props.sid));                       // (and again when the data change: the network may be outdated now)
     const level = computed(() => (d.value ? (d.value.status === 'ok' ? 'good' : d.value.status === 'outside' ? 'warning' : 'critical') : 'info'));
     const blocks = computed(() => {
       const x = d.value; if (!x) return [];
@@ -76,6 +76,7 @@ export const AeSampleView = {
         <div class="fp-stat" v-if="d.typicality !== null && d.typicality !== undefined"><span class="l">Typicality of the code</span><span class="v">{{ fmt(d.typicality, 2) }}</span><span class="s">low = an unusual code</span></div>
         <div class="fp-stat" v-else><span class="l">Error (RMSE)</span><span class="v">{{ fmt(d.rmse, 3) }}</span></div>
       </div>
+      <p class="fp-note" v-if="d.missing_words" data-ae-sample-missing>{{ d.missing_words }}</p>
       <template v-for="b in blocks" :key="b.name">
         <h3 class="fp-h3">{{ b.name === 'fluorescence' ? 'Fluorescence' : 'Absorbance' }}<span class="muted xs" v-if="Number.isFinite(b.rmse)"> · RMSE {{ fmt(b.rmse, 3) }} {{ shortUnits(b.units) }}</span></h3>
         <FpcaAxesNote v-if="b.surface"/>
@@ -139,7 +140,7 @@ export const AeSamplesTab = {
     const A = computed(() => fp.ae), R = computed(() => fp.ae.res), V = computed(() => fp.ae.sampView);
     const rows = computed(() => {
       const r = R.value; if (!r) return [];
-      return r.ids.map((id, i) => ({ id, i, held: !!(r.held && r.held[i]), err: r.err[i], r2: r.r2[i], flag: r.flag[i] || '' }));
+      return r.ids.map((id, i) => ({ id, i, held: !!(r.held && r.held[i]), err: r.err[i], r2: r.r2[i], flag: r.flag[i] || '', miss: r.missing ? r.missing[i] : 0 }));
     });
     const isFlagged = (x) => !!x.flag && !/^inside/i.test(x.flag);
     const shown = computed(() => {
@@ -167,7 +168,7 @@ export const AeSamplesTab = {
           <input class="input sm" v-model="V.find" placeholder="Find a sample" aria-label="Find a sample" data-ae-sample-find/>
           <div class="table-wrap" style="max-height:420px"><table class="table"><thead><tr><th>Sample</th><th>Used for</th><th class="num">Not rebuilt</th><th>Status</th></tr></thead>
             <tbody><tr v-for="x in shown" :key="x.id" :class="{ sel: x.id === sid }" data-ae-sample-row :data-id="x.id" tabindex="0" @click="pick(x.id)" @keydown.enter="pick(x.id)" @keydown.space.prevent="pick(x.id)">
-              <td><b>{{ x.id }}</b></td><td>{{ x.held ? 'held out' : 'training' }}</td><td class="num">{{ pct(x.err, 1) }}</td><td><span class="status" :class="isFlagged(x) ? 'warning' : 'good'">{{ isFlagged(x) ? 'unusual' : 'fits' }}</span></td></tr>
+              <td><b>{{ x.id }}</b><div v-if="x.miss >= 0.005" class="muted xs" data-ae-sample-missing-share title="The share of the domain this sample lacked (a region cut out of it): the network was shown an estimate of that part.">{{ pct(x.miss, 0) }} missing</div></td><td>{{ x.held ? 'held out' : 'training' }}</td><td class="num">{{ pct(x.err, 1) }}</td><td><span class="status" :class="isFlagged(x) ? 'warning' : 'good'">{{ isFlagged(x) ? 'unusual' : 'fits' }}</span></td></tr>
               <tr v-if="!shown.length"><td colspan="4" class="muted">No sample matches.</td></tr></tbody></table></div>
         </div>
       </div>

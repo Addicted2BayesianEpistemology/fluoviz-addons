@@ -41,8 +41,31 @@ export function describeAe(spec = fp.spec, data = fp.data, check = fp.ae.check.a
   out.push(`Regularisation: weight decay ${n.weight_decay}${extras.length ? `, ${extras.join(', ')}` : ''}`);
   out.push(Number(n.smoothify) > 0 ? `Smoothify: ${fmt(Number(n.smoothify), 3)}${isFunctional(spec) ? (n.smoothify_metric === 'ridge' ? ' (plain size of the coefficients)' : ' (smoothness of the representation)') : ' (plain penalty on the size of the values)'}` : 'Smoothify: off');
   const val = check && check.validation ? String(check.validation.words || '').replace(/\.\s*$/, '') : `${Math.round(n.val_fraction * 100)} % of the samples are held out (fewer than 30 samples: ${n.folds}-fold validation)`;
-  out.push(`Training: up to ${nTxt(n.epochs)} epochs, stopping after ${nTxt(n.patience)} without improvement; ${val}; ${n.n_restarts} random ${n.n_restarts === 1 ? 'start' : 'starts'}, seed ${n.seed}`);
+  out.push(`Training: ${stopWords(n)}; ${val}; ${n.n_restarts} random ${n.n_restarts === 1 ? 'start' : 'starts'}, seed ${n.seed}${learnWords(n)}`);
   return out;
+}
+
+/** When training stops, in words (the defaults read as they always did). */
+export function stopWords(n) {
+  if (n.stop_rule === 'never') return `${nTxt(n.epochs)} epochs, without early stopping${timeWords(n)}`;
+  let out = `up to ${nTxt(n.epochs)} epochs, stopping after ${nTxt(n.patience)} without improvement${n.stop_rule === 'training' ? ' of the training loss' : ''}`;
+  if (Number(n.min_epochs) > 0) out += `, never before epoch ${nTxt(n.min_epochs)}`;
+  if (Number(n.min_delta_pct) !== 0.1) out += `, an improvement of at least ${fmt(Number(n.min_delta_pct), 3)} % counting`;
+  if (Number(n.val_window) > 1) out += `, the loss averaged over ${n.val_window} epochs`;
+  return out + timeWords(n);
+}
+const timeWords = (n) => (n.max_minutes !== null && n.max_minutes !== '' && Number(n.max_minutes) > 0 ? `, at most ${fmt(Number(n.max_minutes), 3)} minutes per network` : '');
+/** What differs from the usual in how the network learns (empty for the defaults). */
+export function learnWords(n) {
+  const out = [];
+  if (n.lr_schedule === 'constant') out.push('constant learning rate');
+  else if (n.lr_schedule === 'plateau') out.push('learning rate halved when the loss stalls');
+  else if (n.lr_schedule === 'cosine_run') out.push('learning rate decaying over the epochs of each network');
+  if (n.restore_best === false) out.push('the weights of the last epoch are kept');
+  if (Number(n.kfold_below) !== 30) out.push(`k-fold validation below ${n.kfold_below} samples`);
+  if (n.final_mode === 'max') out.push('final networks of k-fold validation trained for all the epochs');
+  else if (n.final_mode === 'number') out.push(`final networks of k-fold validation trained for ${n.final_number} epochs`);
+  return out.length ? `; ${out.join('; ')}` : '';
 }
 
 export const AeStepTrain = {
@@ -92,13 +115,41 @@ export const AeStepTrain = {
               <Field label="Maximum number of epochs" help="An epoch is one pass of the network over all the training samples. Training stops earlier when the held-out loss stops falling. 1 to 5000." hint="Default 600."><NumField v-model="net.epochs" :min="1" :max="5000" :step="10" data-ae-epochs/></Field>
               <Field label="Patience (epochs without improvement)" help="Training stops when the held-out loss has not improved for this many epochs, and the best network is restored. 1 to 1000." hint="Default 60."><NumField v-model="net.patience" :min="1" :max="1000" :step="5" data-ae-patience/></Field>
               <Field label="Share of samples held out" help="The share of the samples that is kept back to test the network (at least 5 samples). 0.1 to 0.5." hint="Default 0.2."><NumField v-model="net.val_fraction" :min="0.1" :max="0.5" :step="0.05" data-ae-val-fraction/></Field>
-              <Field label="Folds (fewer than 30 samples)" help="With fewer than 30 samples the samples are split into this many groups and every group is held out once, so that all the samples are used for the testing. 2 to 10." hint="Default 5."><NumField v-model="net.folds" :min="2" :max="10" :step="1" data-ae-folds/></Field>
+              <Field :label="'Folds (fewer than ' + net.kfold_below + ' samples)'" :help="'With fewer than ' + net.kfold_below + ' samples the samples are split into this many groups and every group is held out once, so that all the samples are used for the testing. 2 to 10.'" hint="Default 5."><NumField v-model="net.folds" :min="2" :max="10" :step="1" data-ae-folds/></Field>
               <Field label="Learning rate" help="The size of the steps of the training. A smaller rate is slower and steadier. 0.00001 to 0.1." hint="Default 0.001."><NumField v-model="net.lr" :min="0.00001" :max="0.1" :step="0.0005" data-ae-lr/></Field>
               <Field label="Batch size" help="How many samples are used for one step of the training. Empty = automatic (32 or fewer). 2 to 1024."><NumField v-model="net.batch_size" :min="2" :max="1024" :step="1" nullable placeholder="automatic" data-ae-batch/></Field>
               <Field label="Number of random starts" help="The network is trained this many times from different random numbers and the best one is kept; the spread between them is reported. 1 to 10." hint="Default 3."><NumField v-model="net.n_restarts" :min="1" :max="10" :step="1" data-ae-restarts/></Field>
               <Field label="Random seed" help="Makes everything repeatable: the same seed gives the same network." hint="Default 0."><NumField v-model="net.seed" :min="0" :step="1" data-ae-seed/></Field>
             </div>
             <Field label="Title of the result" help="The name under which the network is saved. Leave it empty for an automatic name."><input class="input" v-model="net.title" placeholder="automatic" maxlength="120" data-ae-title/></Field>
+            <details class="fp-more" data-ae-advanced-training>
+              <summary>Advanced training settings</summary>
+              <div class="col gap-12 mt-8">
+                <p class="fp-note">The defaults suit most data: leave these alone unless the training ends too early or too late. The chart of the training and the verdict in step 8 say why a training ended and which of these settings to change.</p>
+                <div class="eyebrow">When training stops</div>
+                <div class="fp-grid2">
+                  <Field label="Stop training when" help="What decides that training is over. The held-out loss (the default) protects against memorising the samples. The training loss ignores the held-out samples. 'Never' trains all the epochs, and the best epoch is still found."><select class="select" v-model="net.stop_rule" data-ae-stop-rule><option value="validation">the held-out loss stops improving</option><option value="training">the training loss stops improving</option><option value="never">never: train all the epochs</option></select></Field>
+                  <Field label="Never stop before this many epochs" help="Training always runs at least this long, whatever the loss does; then the patience applies. 0 = no minimum." hint="Default 0."><NumField v-model="net.min_epochs" :min="0" :max="5000" :step="10" data-ae-min-epochs/></Field>
+                  <Field label="Smallest improvement that counts (%)" help="An epoch counts as an improvement when the loss is lower than the best so far by at least this percentage. A smaller number is more patient with slow progress." hint="Default 0.1."><NumField v-model="net.min_delta_pct" :min="0" :max="50" :step="0.05" data-ae-min-delta/></Field>
+                  <Field label="Average the loss over this many epochs" help="The decisions (best epoch, patience) use the average of the loss over the last few epochs, so that a noisy held-out loss does not stop the training by chance. 1 = no averaging." hint="Default 1."><NumField v-model="net.val_window" :min="1" :max="100" :step="1" data-ae-val-window/></Field>
+                  <Field label="Longest time for one network (minutes)" help="Training of each network is stopped after this time and the best weights so far are kept. Empty = no limit."><NumField v-model="net.max_minutes" :min="0.05" :max="100000" :step="1" nullable placeholder="no limit" data-ae-max-minutes/></Field>
+                  <Field label="Keep the best epoch" help="On: the network of the best epoch is kept (the held-out or training loss, as chosen above). Off: the network of the last epoch is kept."><Switch v-model="net.restore_best" label="Keep the weights of the best epoch" data-ae-restore-best/></Field>
+                </div>
+                <div class="eyebrow">How the network learns</div>
+                <div class="fp-grid2">
+                  <Field label="Learning-rate schedule" help="How the size of the training steps changes over the epochs. Cosine: smaller and smaller, planned over the maximum number of epochs. The second choice plans it over the epochs each network is going to train, which matters when training is shortened. Constant: no change. Halve: smaller whenever the loss stalls."><select class="select" v-model="net.lr_schedule" data-ae-lr-schedule><option value="cosine">cosine decay over the maximum number of epochs</option><option value="cosine_run">cosine decay over the epochs each network trains</option><option value="constant">constant</option><option value="plateau">halve it when the loss stops improving</option></select></Field>
+                  <Field label="Final learning rate (share of the start)" help="Where the learning rate ends: this share of the learning rate above (the lowest value when it is halved). 0.0001 to 1." hint="Default 0.01."><NumField v-model="net.lr_final" :min="0.0001" :max="1" :step="0.005" data-ae-lr-final/></Field>
+                  <Field label="Cap on the size of a training step" help="Training steps larger than this are scaled down, so that a rare bad batch of samples cannot throw the network off (this is called gradient clipping). 0 = no cap." hint="Default 5."><NumField v-model="net.grad_clip" :min="0" :max="1000" :step="1" data-ae-grad-clip/></Field>
+                </div>
+                <div class="eyebrow">With few samples (k-fold validation)</div>
+                <div class="fp-grid2">
+                  <Field label="Use k-fold validation below this many samples" help="Below this number of samples the network is checked by k-fold validation (every sample is held out once) instead of one set of held-out samples." hint="Default 30."><NumField v-model="net.kfold_below" :min="0" :max="10000" :step="1" data-ae-kfold-below/></Field>
+                  <Field label="Epochs of the final networks" help="With k-fold validation the final networks are trained on all the samples. As many epochs as the folds found is the default; the other choices let you train them for all the epochs or for a number you choose."><select class="select" v-model="net.final_mode" data-ae-final-mode><option value="auto">as many as the folds found</option><option value="max">the maximum number of epochs</option><option value="number">a number I choose</option></select></Field>
+                  <Field v-if="net.final_mode === 'number'" label="Number of epochs of the final networks" help="The final networks are trained for exactly this many epochs."><NumField v-model="net.final_number" :min="1" :max="100000" :step="10" data-ae-final-number/></Field>
+                  <Field v-else label="At least this many epochs" help="When the folds decide, the final networks get at least this many epochs, however early the folds stopped." hint="Default 20."><NumField v-model="net.final_min" :min="1" :max="100000" :step="5" data-ae-final-min/></Field>
+                </div>
+              </div>
+            </details>
           </div>
         </details>
         <div class="card flat" v-if="few" data-ae-few><div class="card-body col gap-8">

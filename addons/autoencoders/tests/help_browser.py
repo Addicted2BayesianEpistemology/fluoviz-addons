@@ -88,7 +88,7 @@ def server(port: int, env: dict[str, str] | None = None, wait: float = 900.0):
         shutil.rmtree(ws, ignore_errors=True)
 
 TAB = "addon:autoencoders:autoencoders"
-N_PAGES = 8
+N_PAGES = 9
 
 TEXT_OUT = """() => {
   const out = [];

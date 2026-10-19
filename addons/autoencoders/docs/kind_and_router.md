@@ -11,7 +11,7 @@ fluoviz_addon_autoencoders/
         freeze.py            freeze_autoencoder(p, result, title, note), pack_frozen / unpack_frozen (the `payload["frozen"]` format)
         stats.py             error limits, typicality of a code, KL, ELBO
         tools.py             traversals, interpolation, generation, sensitivity (decoder only)
-    server/                the router (thin): request, prep, advice, fitjob, payload, views, scans, exports, methods, history, results, trainer
+    server/                the router (thin): request, prep, advice, fitjob, payload, views, scans, exports, methods, history, results, trainer, nlrequest + nonlinear (the four views of the nonlinear effects of the codes: api.md 2.15)
 tests/                     (the API tests start the add-on with FluoViz's own dev-mode loader, `FLUOVIZ_ADDONS_DEV`; a hand-wired `AddonAPI` stand-in is only the fallback) test_kind_autoencoder.py, test_api_autoencoders.py, test_api_models.py, test_api_scans.py, test_api_training.py (+ kind_support.py, api_support.py)
 ```
 
@@ -34,7 +34,7 @@ Nothing is frozen from the new samples: no centring, smoothing parameter, scale,
 ## 2. Applying a model to new samples
 
 1. The recipe puts the samples in the state of the training samples (the router of FluoViz does this; `ApplyData`).
-2. For each variable: values at the pixels of the domain → clean-up of the absorbance (as in training) → pre-treatment → **functional**: smoothed on the pixels the sample has with the stored smoothing, centred, moved to the L2 frame, divided by `scale`; **pixels**: `(y - mean) / s`, unmeasured pixels = 0 and ignored by the error.
+2. For each variable: values at the pixels of the domain → clean-up of the absorbance (as in training) → pre-treatment → **functional**: smoothed on the pixels the sample has with the stored smoothing (a part it lacks is estimated as in the training, see Gaps below), centred, moved to the L2 frame, divided by `scale`; **pixels**: `(y - mean) / s`, unmeasured pixels = 0 and ignored by the error.
 3. The network standardises (`in.mean`, `in.scale`), encodes (a VAE's code is the posterior mean) and decodes.
 4. **Reconstruction error** = the squared L2 distance between the sample's coordinates and their reconstruction, divided by the total variance of the variable, summed over the variables with equal weight (`core.forward.recon_error`): 0 = perfect, about 1 = as bad as the mean, `1 - error` = the share of the typical variation that is rebuilt.  A block with unmeasured pixels is scaled up to the whole block.
 
@@ -61,7 +61,7 @@ Nothing is frozen from the new samples: no centring, smoothing parameter, scale,
 * The limit comes from few samples (the same few that are held out): rough, see above.  The page's own numbers (`recon.limit`) are the same as the saved model's at default thresholds, so a result and its saved model agree.
 * A nonlinear network rebuilds well what looks like its training samples: a sample measured under other conditions is flagged too (the reason says "or it was measured differently").
 * A coarser measurement grid is regridded by the recipe (bilinear); codes stay close (tests: correlation > 0.9 with the page's codes for a grid with half the wavelengths) but are not identical.
-* Gaps: a functional model fills them with its smooth shape (less certain codes), a pixel model ignores them; both say so.
+* Gaps: a pixel model ignores them; a functional model estimates the part a sample lacks from the pixels it has and, when the training samples had gaps (the frozen element carries the estimator, `FrozenElement.gap`), from what the other samples showed — the same estimate the training used, so a new sample with a gap lands where a training sample with the same gap did; without that, from the pixels it has and the smooth shape (less certain codes).  Both say so.
 * The saved model is the *final* network.  With fewer than 30 samples the honest numbers come from the k-fold networks, the final network is trained on all samples (as `core/README.md` describes), so the training samples are in-sample for it.
 
 ## 4. The router (what is not obvious)

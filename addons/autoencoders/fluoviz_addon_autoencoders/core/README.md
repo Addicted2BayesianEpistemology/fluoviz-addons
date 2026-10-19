@@ -5,7 +5,7 @@ API for the saved kind / router (A2), the page (A3) and the Help guide (A4).  Bi
 
 | module | imports | who uses it |
 |---|---|---|
-| `spec.py`, `forward.py`, `linear.py`, `tools.py`, `diagnostics.py` (everything except the three scan *jobs*), `advice.py` | numpy (+ scipy) — **no torch** | server, saved kind, tests |
+| `spec.py`, `forward.py`, `linear.py`, `tools.py`, `diagnostics.py` (everything except the three scan *jobs*), `advice.py`, `curves.py`, `features.py`, `nonlinear.py` (the response curves, features and effects of the tab Nonlinear effects: `docs/api.md` 2.15) | numpy (+ scipy) — **no torch** | server, saved kind, tests |
 | `data.py` | numpy + FluoViz (`fluoviz.analysis.fpca`, `fluoviz.analysis.frozen.kinds.fpca`) — **no torch** | server (`prepare`), saved kind (`AEFrame`) |
 | `train.py` | torch, **imported lazily inside functions** (the module itself imports without torch: `train.make_split`, `train.read_history` are fine in the server) | the worker process, tests |
 | `worker.py` | multiprocessing (spawn); the child imports `train` | the server calls `run_in_worker(...)` |

@@ -144,7 +144,7 @@ def fake_train(cfg, prepared, history_path, progress):
     from fluoviz_addon_autoencoders.core import forward as fw
     from fluoviz_addon_autoencoders.core.train import TrainResult, HistoryWriter, evr, make_split
     d = cfg.latent_dim
-    td = prepared.train_data(cfg.smoothify_metric)
+    td = prepared.train_data(cfg.smoothify_metric, cfg.gap_weighting)
     n = td.n
     split = make_split(n, cfg)
     tr = np.asarray(split["train"], int)
@@ -169,7 +169,7 @@ def fake_train(cfg, prepared, history_path, progress):
         held[:] = True
     eh = np.where(held, tot, np.nan)
     from fluoviz_addon_autoencoders.core import linear as lin
-    pm = lin.fit_pca(td.X[tr], None if td.M is None else td.M[tr], td.omega, d)
+    pm = lin.fit_pca(td.X[tr], None if td.M is None else td.M[tr], td.omega, d, sample_w=td.sw_of(tr))
     pe = lin.pca_errors(pm, td.X, td.M, td.omega, td.blocks, [d])[d]
     eb = np.where(held, pe, np.nan)                                                  # the linear baseline on the same held-out samples
     fold = None

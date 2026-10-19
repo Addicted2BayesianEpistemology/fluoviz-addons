@@ -39,7 +39,7 @@ def training_block(res, split: dict) -> dict:
     spread = {k: (res.restarts or {}).get(k) for k in ("n", "kept", "metric", "mean", "sd", "min", "max")}
     verdict = " ".join([tv["quality_words"], tv["overfit_words"], stopping, tv["restarts_words"]])
     return {"history": cols, "best_epoch": int(res.best_epoch), "epochs_run": int(res.epochs_run), "stopped": stopped,
-            "restarts": [{"seed": r.get("seed"), "val": r.get("evr_val", r.get("evr_train")), "best_epoch": r.get("best_epoch"), "chosen": bool(r.get("chosen")), "epochs_run": r.get("epochs_run")} for r in runs],
+            "restarts": [{"seed": r.get("seed"), "val": r.get("evr_val", r.get("evr_train")), "best_epoch": r.get("best_epoch"), "chosen": bool(r.get("chosen")), "epochs_run": r.get("epochs_run"), "stopped": r.get("stopped")} for r in runs],
             "spread": spread, "overfit": {"level": tv["overfit"], "gap": tv["gap"], "words": tv["overfit_words"]}, "stopping": stopping, "restarts_words": tv["restarts_words"],
             "verdict": verdict, "fold_info": list(res.fold_info or []), "seconds": float(res.seconds)}
 
@@ -87,7 +87,7 @@ def latent_block(res, prepared, model: AEModel, ev: Evaluation, ref: dict) -> di
 # ----------------------------------------------------------------------------- smoothness
 def smoothness_block(prepared, model: AEModel, ev: Evaluation, cfg) -> dict:
     """The smoothness check: ``diagnostics.smoothness_report`` (roughness of the reconstructions against that of the samples, with its own rule and words)."""
-    td = prepared.train_data(cfg.smoothify_metric)
+    td = prepared.train_data(cfg.smoothify_metric, cfg.gap_weighting)
     return DG.smoothness_report(td, prepared.X, ev.xhat, float(cfg.smoothify), cfg.smoothify_metric)
 
 
@@ -110,6 +110,11 @@ def assemble(p, req, prepared, res, ids: list, ev: Evaluation, notes: list, seco
     split_flag = np.where(heldout, "held out", "training")
     variables["split"] = split_flag
     var_info["split"] = {"kind": "category", "label": "Autoencoder: used for training or held out", "description": "Whether the sample was held out to check the network (its numbers are then honest) or used to train it."}
+    lacking = prepared.missing_part()
+    if lacking is not None:
+        variables["missing_part"] = lacking
+        var_info["missing_part"] = {"kind": "numeric", "label": "Autoencoder: share of the domain not measured",
+                                    "description": "The share of the domain (by area) that was missing for this sample when the network was trained, for example a region excised from it. The network was shown an estimate of that part."}
     q = quality_block(res, prepared, model, ev, ids, heldout, err_held)
     tr = training_block(res, res.split)
     lat = latent_block(res, prepared, model, ev, ref)
@@ -148,6 +153,8 @@ def assemble(p, req, prepared, res, ids: list, ev: Evaluation, notes: list, seco
         "notes": list(dict.fromkeys(list(prepared.notes))), "warnings": list(dict.fromkeys(warnings)), "versions": dict(res.versions or {}), "n_outside": int(jd.err_out.sum() + (jd.typ_out & ~jd.err_out).sum()),
     }
     payload["versions"]["seed"] = cfg.seed
+    if lacking is not None:
+        payload["recon"]["missing"] = lacking                                   # the share of the domain every sample lacked (the Samples tab shows it)
     # images of the fluorescence, curves of the absorbance
     ax: dict = {}
     for b in model.frame.blocks:

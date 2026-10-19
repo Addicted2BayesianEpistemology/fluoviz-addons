@@ -31,6 +31,7 @@ export const AeStepNetwork = {
     const latent = computed(() => latentOf(net.value, A.value.defaults));
     const isVae = computed(() => net.value.family === 'vae');
     const pixelsOnly = computed(() => !isFunctional(fp.spec));
+    const gapWeigh = computed({ get: () => net.value.gap_weighting !== 'equal', set: (v) => { net.value.gap_weighting = v ? 'observed' : 'equal'; } });
     const check = computed(() => A.value.check);
     const ans = computed(() => check.value.ans);
     const fresh = computed(() => !!(ans.value && check.value.key === JSON.stringify(requestBody())));
@@ -92,7 +93,7 @@ export const AeStepNetwork = {
     const useLatent = (n) => { net.value.latent_dim = n; };
     const useSmooth = (s) => { net.value.smoothify = s; };
     function pickFamily(id) { net.value.family = id; }
-    return { fp, net, A, advice, latent, isVae, pixelsOnly, check, ans, fresh, FAMILIES, SIZE_OPTIONS, SIZES, ACTIVATIONS, ACTIVATION_WORDS, hiddenOk, sizeWords, sliderPos, smoothText, smoothWho, stats, warnings, blocking,
+    return { fp, net, A, advice, latent, isVae, pixelsOnly, gapWeigh, check, ans, fresh, FAMILIES, SIZE_OPTIONS, SIZES, ACTIVATIONS, ACTIVATION_WORDS, hiddenOk, sizeWords, sliderPos, smoothText, smoothWho, stats, warnings, blocking,
       scanOptions, useLatent, useSmooth, pickFamily, plural, nTxt, fmt, SLIDER_MAX, SLIDER_MARKS };
   },
   template: `
@@ -160,6 +161,10 @@ export const AeStepNetwork = {
           <div class="col gap-12 mt-8">
             <Switch v-model="net.skip" label="Start from PCA (linear shortcut)" data-ae-skip/>
             <div class="fp-note" data-ae-skip-words>The network starts as the PCA and learns only what the bends add on top of it, so it is never worse than PCA on held-out samples; switch it off for a classical autoencoder.<template v-if="net.activation === 'linear' && net.skip"> With the <i>linear</i> activation and the shortcut the network is the PCA itself.</template></div>
+            <template v-if="!pixelsOnly">
+              <Switch v-model="gapWeigh" label="Weigh samples that lack part of the domain" data-ae-gap-weighting/>
+              <div class="fp-note" data-ae-gap-weighting-words>A sample with a rectangle cut out has coefficients that were <b>estimated</b> from the pixels it has and from the other samples (step 2). With this on it counts in proportion to the share of the EEM that was measured, so that the estimated part pulls the network less; switch it off to count every sample alike. Nothing changes when no sample lacks anything.</div>
+            </template>
           </div>
         </details>
 

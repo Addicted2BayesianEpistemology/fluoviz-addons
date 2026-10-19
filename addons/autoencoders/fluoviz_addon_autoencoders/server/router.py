@@ -9,18 +9,20 @@ of this folder; the numerics are ``core`` (training, in a separate process) and 
     GET  /{rid}                       the result for the page
     GET  /{rid}/sample/{sid}          one sample against the network
     POST /{rid}/traverse | /interpolate | /generate | /anomalies | /relate,  GET /{rid}/sensitivity | /methods | /export
+    POST /{rid}/response | /bends | /local | /pair      the nonlinear effects of the codes (``server/nonlinear.py``)
 """
 from __future__ import annotations
 
 from fastapi import HTTPException
 from fastapi.responses import Response
 
+from fluoviz.analysis.fpca.variables import DEFAULT_MIN_COVERAGE
 from fluoviz.server.analysis import project, result_public, start_job
 from fluoviz.server.encoding import JsonRouter
 from fluoviz.server.helpers import attachment_headers
 from fluoviz.server.state import get_state
 
-from . import advice, exports, fitjob, history, prep, scans, views
+from . import advice, exports, fitjob, history, nonlinear, prep, scans, views
 from .methods import REFERENCES, methods_text
 from .request import parse_request
 from .results import RESULT_KIND, frozen_of, get_result, model_of, turn_for_browser
@@ -46,7 +48,7 @@ def _num_query(v, what: str, lo: float, hi: float) -> float:
 
 # ----------------------------------------------------------------------------- advice and checks
 @router.get("/defaults")
-def defaults(variables: str = "fluorescence", min_coverage: float = 0.9, abs_processed: bool = True, advise: int = 0):
+def defaults(variables: str = "fluorescence", min_coverage: float = DEFAULT_MIN_COVERAGE, abs_processed: bool = True, advise: int = 0):
     project()
     names = [v.strip() for v in variables.split(",") if v.strip()]
     bad = [v for v in names if v not in ("fluorescence", "absorbance")]
@@ -163,6 +165,29 @@ def anomalies(rid: str, body: dict):
 def relate(rid: str, body: dict):
     p = project()
     return scans.relate_view(p, get_result(p, rid), body)
+
+
+# ----------------------------------------------------------------------------- which nonlinear trend does each code fit?
+@router.post("/{rid}/response")
+def response(rid: str, body: dict):
+    p = project()
+    return nonlinear.response_view(p, get_result(p, rid), body)
+
+
+@router.post("/{rid}/bends")
+def bends(rid: str, body: dict):
+    return nonlinear.bends_view(get_result(project(), rid), body)
+
+
+@router.post("/{rid}/local")
+def local(rid: str, body: dict):
+    return nonlinear.local_view(get_result(project(), rid), body)
+
+
+@router.post("/{rid}/pair")
+def pair(rid: str, body: dict):
+    p = project()
+    return nonlinear.pair_view(p, get_result(p, rid), body)
 
 
 @router.get("/{rid}/methods")

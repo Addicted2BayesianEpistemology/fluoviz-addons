@@ -26,6 +26,59 @@ def _best_words(e) -> str:
     return "the starting weights, which no epoch improved on" if int(e) < 0 else f"epoch {int(e) + 1}"
 
 
+def _schedule_words(cfg: dict) -> str:
+    sch = cfg.get("lr_schedule", "cosine")
+    fin = float(cfg.get("lr_final", 0.01))
+    if sch == "constant":
+        return "kept constant"
+    if sch == "plateau":
+        return f"halved whenever the loss stopped improving (down to {fin:g} of its start)"
+    base = "with cosine decay" if sch == "cosine" else "with cosine decay over the epochs each network was trained for"
+    return base if abs(fin - 0.01) < 1e-12 else f"{base} to {fin:g} of its start"
+
+
+def _stopping_words(cfg: dict) -> str:
+    """How long it trained and what stopped it (the defaults read as they always did)."""
+    ep, pat, rule = cfg.get("epochs", 600), cfg.get("patience", 60), cfg.get("stop_rule", "validation")
+    if rule == "never":
+        out = f"{ep} epochs without early stopping"
+    else:
+        out = f"up to {ep} epochs with early stopping (patience {pat}" + (", on the training loss" if rule == "training" else "")
+        if int(cfg.get("min_epochs") or 0) > 0:
+            out += f", never before epoch {int(cfg['min_epochs'])}"
+        if abs(float(cfg.get("min_delta", 1e-3)) - 1e-3) > 1e-12:
+            out += f", an improvement of at least {100 * float(cfg['min_delta']):g} % counting"
+        if int(cfg.get("val_window", 1)) > 1:
+            out += f", the loss averaged over {int(cfg['val_window'])} epochs"
+        out += ")"
+    if cfg.get("max_minutes"):
+        out += f", at most {float(cfg['max_minutes']):g} minutes per network"
+    return out
+
+
+def _gap_words(r, model: AEModel) -> str:
+    """The sentence about samples that lacked part of the domain (a region excised from them): empty when no sample did."""
+    miss = (getattr(r, "variables", None) or {}).get("missing_part")
+    if miss is None:
+        return ""
+    m = np.asarray(miss, float)
+    k = int((m >= 0.005).sum())
+    if not k:
+        return ""
+    prm = r.params or {}
+    inp = prm.get("input") or {}
+    func = [b for b in model.frame.blocks if b.kind != "pixels"]
+    out = f"{D.plural(k, 'sample')} lacked part of the domain (up to {_pct(float(np.nanmax(m)))} of it)"
+    if not func:
+        return out + "; the missing pixels were ignored in the loss."
+    modes = {(inp.get(b.name) or {}).get("gaps", "auto") for b in func}
+    how = ("; the coefficients of these samples were estimated from the pixels they have together with what the other samples show about the part they lack (the gap-aware estimate "
+           "of the functional PCA: the smoothness prior of the representation combined with the directions in which the other samples vary)" if modes == {"auto"} else "; the coefficients of these samples were estimated from the pixels they have")
+    if prm.get("gap_weighting", "observed") == "observed":
+        how += ", and each of them counted in the loss in proportion to the share of the domain that was measured"
+    return out + how + "."
+
+
 def methods_text(r, model: AEModel) -> str:
     """The paragraph; it only reads what the result stores (so it also works for a project that was opened again, and for an outdated result)."""
     pl = r.payload
@@ -48,6 +101,9 @@ def methods_text(r, model: AEModel) -> str:
                          f"again, and the coefficients were centred, moved to an L2-orthonormal frame and standardised ({b.K} coordinates)")
     joined = "; ".join(reads)
     parts.append(joined[:1].upper() + joined[1:] + ".")
+    gap = _gap_words(r, model)
+    if gap:
+        parts.append(gap)
     enc = " - ".join(str(w) for w in [sp.input_dim, *sp.encoder["hidden"], model.d])
     skip = (" A linear shortcut ran beside the encoder and the decoder and training started from the PCA solution of the training samples." if getattr(sp, "skip", False) else "")
     parts.append(f"The network had {D.plural(model.d, 'code')} (layers {enc}, {sp.encoder['activation']} activation, the decoder mirroring the encoder) and {sp.n_parameters():,} weights.{skip}")
@@ -65,9 +121,10 @@ def methods_text(r, model: AEModel) -> str:
     split = pl.get("split") or {}
     val = (f"{split.get('n_val')} of the samples were held out for validation" if split.get("mode") == "holdout"
            else f"{cfg.get('folds', 5)}-fold cross-validation was used for the validation numbers and the final network was trained on all samples")
-    parts.append(f"Training used AdamW (learning rate {float(cfg.get('lr', 1e-3)):g} with cosine decay, weight decay {float(cfg.get('weight_decay', 1e-3)):g}"
-                 + (f", dropout {float(cfg.get('dropout')):g}" if float(cfg.get("dropout") or 0) > 0 else "") + f"), up to {cfg.get('epochs', 600)} epochs with early stopping (patience {cfg.get('patience', 60)}), "
-                 f"{D.plural(int(cfg.get('n_restarts', 1)), 'random start')}, seed {cfg.get('seed', 0)}; {val}. The best weights were kept ({_best_words((pl.get('training') or {}).get('best_epoch'))}).")
+    parts.append(f"Training used AdamW (learning rate {float(cfg.get('lr', 1e-3)):g} {_schedule_words(cfg)}, weight decay {float(cfg.get('weight_decay', 1e-3)):g}"
+                 + (f", dropout {float(cfg.get('dropout')):g}" if float(cfg.get("dropout") or 0) > 0 else "") + f"), {_stopping_words(cfg)}, "
+                 f"{D.plural(int(cfg.get('n_restarts', 1)), 'random start')}, seed {cfg.get('seed', 0)}; {val}. "
+                 + (f"The best weights were kept ({_best_words((pl.get('training') or {}).get('best_epoch'))})." if cfg.get("restore_best", True) else "The weights of the last epoch were kept."))
     q = pl.get("quality") or {}
     if q.get("r2_val") is not None:
         base = q.get("baseline") or {}

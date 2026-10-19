@@ -1,21 +1,26 @@
 """End-to-end flow of the Autoencoders add-on in a real browser (Playwright + Chrome), with assertions.
 
-    <python-with-playwright> tests/e2e/flow_autoencoders.py [--dark] [--shots] [--keep-going]
+    <python-with-playwright> tests/e2e/flow_autoencoders.py [--dark] [--shots] [--keep-going] [--only=advanced | --only=nonlinear | --only=gaps]
 
 What it does: starts a PRIVATE FluoViz (own temporary workspace and runtime folder, listening on this computer only) with the add-on loaded in development mode
 (``FLUOVIZ_ADDONS_DEV=<this add-on>``), opens the example data and goes through the page: the sidebar entry and its badge, the nine steps, the functional switch, the
 network settings, **Run with the recommended settings**, every tab of the results and of the checks, the tools (traversals, hover cards, interpolation, unusual samples),
-smoothify, a variational autoencoder (generate), both variables together, cancel, an outdated network and **Train again with the same settings**, the use buttons
+the tab **Nonlinear effects** (its four sections, typed and clicked features, curves of single samples, ten codes, one code, a network with absorbance, a reload, excitation across),
+smoothify, a variational autoencoder (generate), both variables together, the advanced training settings, a rectangle cut out of some samples only (the weighting of step 5, the sentence in the Samples tab), cancel, an outdated network and **Train again with the same settings**, the use buttons
 (**Cluster the latent space**, **Classify with the latent space**, **Save this model**, applying the saved model in a second project), the downloads, a reload, 600 px
 (no sideways scroll), light and dark; at the end it looks at the console.  ``--shots`` also writes screenshots of every step and tab at 1100 and 600 px, light and dark,
 into ``$FLUOVIZ_SHOTS`` (default: a folder in the temporary directory).
 
-Environment: ``FLUOVIZ_DIR`` = the FluoViz folder (default: ``80_fluoViz`` next to ``81_fluoviz-addons``); ``FLUOVIZ_SHOTS`` = where the screenshots go.
+Environment: ``FLUOVIZ_DIR`` = the FluoViz folder (default: ``80_fluoViz`` next to ``81_fluoviz-addons``); ``FLUOVIZ_SHOTS`` = where the screenshots go;
+``FLUOVIZ_TEST_ENV`` = a conda environment that has PyTorch (when the FluoViz installation itself has none): the private server runs from it.
 The scans (latent-dimension, smoothify, stability, linear baselines) are tested when the server offers them and skipped, with a note, when it says they are not available yet.
+``--only=advanced`` runs just the advanced training settings, ``--only=nonlinear`` just the tab Nonlinear effects and ``--only=gaps`` just the rectangle cut out of some samples (each needs the data and step 5 first; the
+last two train a few small networks).
 Exit status 0 = every assertion passed.
 """
 from __future__ import annotations
 
+import atexit
 import contextlib
 import json
 import os
@@ -339,7 +344,7 @@ def part_results(page, rid: str, shots: bool) -> None:
     pl = payload(page, rid)
     d = pl["latent_dim"]
     tabs = page.locator("[data-ae-tab]").all_inner_texts()
-    check(tabs == ["Latent space", "Traversals", "Samples", "Interpolation", "Generate"], f"the five tabs ({tabs})")
+    check(tabs == ["Latent space", "Traversals", "Nonlinear effects", "Samples", "Interpolation", "Generate"], f"the six tabs ({tabs})")
     check(page.get_attribute("[data-ae-tab='generate']", "aria-disabled") == "true", "'Generate' is disabled for a deterministic autoencoder, with the reason as its title")
     # the latent space
     page.wait_for_selector("[data-ae-latent-chart] .js-plotly-plot", timeout=20000)
@@ -605,6 +610,164 @@ def part_both(page, shots: bool) -> str:
     return rs[-1]["id"]
 
 
+def part_advanced_training(page, shots: bool) -> None:
+    print("step 6: the advanced training settings")
+    step(page, 6)
+    open_settings(page)
+    if not page.locator("[data-ae-stop-rule]").is_visible():
+        page.click("[data-ae-advanced-training] summary")
+        page.wait_for_timeout(300)
+    adv = text(page, "[data-ae-advanced-training]")
+    for label in ("When training stops", "Stop training when", "Never stop before this many epochs", "Smallest improvement that counts (%)", "Average the loss over this many epochs", "Longest time for one network (minutes)",
+                  "Keep the best epoch", "How the network learns", "Learning-rate schedule", "Final learning rate (share of the start)", "Cap on the size of a training step", "With few samples (k-fold validation)",
+                  "Use k-fold validation below this many samples", "Epochs of the final networks", "At least this many epochs"):
+        check(label.lower() in adv.lower(), f"the advanced settings have '{label}'")                # (the group names are drawn in capitals)
+    check("leave these alone unless the training ends too early or too late" in adv, "...with the note that the defaults suit most data")
+    got = {"rule": page.input_value("[data-ae-stop-rule]"), "min": page.input_value("[data-ae-min-epochs] input"), "delta": page.input_value("[data-ae-min-delta] input"), "win": page.input_value("[data-ae-val-window] input"),
+           "time": page.input_value("[data-ae-max-minutes] input"), "best": page.locator("[data-ae-restore-best] input").is_checked(), "sched": page.input_value("[data-ae-lr-schedule]"),
+           "final": page.input_value("[data-ae-lr-final] input"), "clip": page.input_value("[data-ae-grad-clip] input"), "kfold": page.input_value("[data-ae-kfold-below] input"),
+           "mode": page.input_value("[data-ae-final-mode]"), "least": page.input_value("[data-ae-final-min] input")}
+    check(got == {"rule": "validation", "min": "0", "delta": "0.1", "win": "1", "time": "", "best": True, "sched": "cosine", "final": "0.01", "clip": "5", "kfold": "30", "mode": "auto", "least": "20"}, f"every advanced setting starts at its default ({got})")
+    usual = text(page, "[data-ae-summary]")
+    check("up to 600 epochs, stopping after 60 without improvement" in usual and "constant" not in usual and "never before" not in usual, "'What will be done' reads as before for the defaults")
+    page.select_option("[data-ae-stop-rule]", "never")
+    page.fill("[data-ae-min-epochs] input", "40"); page.press("[data-ae-min-epochs] input", "Enter")
+    page.fill("[data-ae-max-minutes] input", "3"); page.press("[data-ae-max-minutes] input", "Enter")
+    page.select_option("[data-ae-lr-schedule]", "constant")
+    page.fill("[data-ae-kfold-below] input", "40"); page.press("[data-ae-kfold-below] input", "Enter")
+    page.select_option("[data-ae-final-mode]", "number")
+    page.wait_for_timeout(600)
+    check(page.locator("[data-ae-final-number]").count() == 1 and page.locator("[data-ae-final-min]").count() == 0, "choosing 'a number I choose' shows its field and hides the minimum")
+    summary = text(page, "[data-ae-summary]")
+    check("without early stopping" in summary and "at most 3 minutes per network" in summary and "constant learning rate" in summary and "k-fold validation below 40 samples" in summary
+          and "final networks of k-fold validation trained for 100 epochs" in summary, f"'What will be done' names what differs ({summary[-330:]!r})")
+    check("Folds (fewer than 40 samples)" in text(page, "[data-ae-train-settings]"), "the label of the folds follows the number of samples chosen for k-fold validation")
+    if shots:
+        shot(page, "ae_flow_advanced_training")
+    # a problem of the step is plain English (the field clamps what is typed; a value the field cannot clamp is a problem)
+    page.select_option("[data-ae-stop-rule]", "validation")
+    page.fill("[data-ae-min-epochs] input", "0"); page.press("[data-ae-min-epochs] input", "Enter")
+    page.fill("[data-ae-max-minutes] input", ""); page.press("[data-ae-max-minutes] input", "Enter")
+    page.select_option("[data-ae-lr-schedule]", "plateau")
+    page.fill("[data-ae-kfold-below] input", "30"); page.press("[data-ae-kfold-below] input", "Enter")
+    page.select_option("[data-ae-final-mode]", "auto")
+    # train with the stop switched off, a minimum and a constant rate: it must do what it says
+    page.select_option("[data-ae-stop-rule]", "never")
+    page.select_option("[data-ae-lr-schedule]", "constant")
+    page.fill("[data-ae-epochs] input", "25"); page.press("[data-ae-epochs] input", "Enter")
+    page.fill("[data-ae-patience] input", "5"); page.press("[data-ae-patience] input", "Enter")
+    page.fill("[data-ae-restarts] input", "1"); page.press("[data-ae-restarts] input", "Enter")
+    page.wait_for_timeout(500)
+    before = len(results(page))
+    page.click("[data-ae-train]")
+    wait_results(page)
+    rs = results(page)
+    check(len(rs) == before + 1, f"a network was trained with the advanced settings ({rs[-1]['id']})")
+    got = api(page, "GET", f"{BASE_API}/{rs[-1]['id']}")
+    tr, params = got["payload"]["training"], got["result"]["params"]
+    check(params["stop_rule"] == "never" and params["lr_schedule"] == "constant" and params["epochs"] == 25 and abs(params["min_delta"] - 0.001) < 1e-12 and params["final_epochs"] == "auto",
+          f"the request carried the settings ({ {k: params[k] for k in ('stop_rule', 'lr_schedule', 'epochs', 'min_delta', 'final_epochs')} })")
+    check(tr["epochs_run"] == 25 and tr["stopped"] == "max" and set(round(x, 12) for x in tr["history"]["lr"]) == {params["lr"]}, f"it trained all 25 epochs with a constant learning rate (stopped: {tr['stopped']})")
+    step(page, 8)
+    page.wait_for_selector("[data-ae-check-training]", timeout=30000)
+    check("Early stopping was off: all 25 epochs were trained" in text(page, "[data-ae-check-training]"), "step 8 says that early stopping was off")
+    check("(the maximum)" in text(page, "[data-ae-check-training] .fp-cards4") and "Epochs trained" in text(page, "[data-ae-restarts-table]"), "the Training check shows how many epochs were trained")
+    step(page, 6)
+    open_settings(page)
+    if not page.locator("[data-ae-stop-rule]").is_visible():
+        page.click("[data-ae-advanced-training] summary")
+    # back to the defaults, so that nothing else depends on this part
+    page.select_option("[data-ae-stop-rule]", "validation")
+    page.select_option("[data-ae-lr-schedule]", "cosine")
+    page.fill("[data-ae-epochs] input", "600"); page.press("[data-ae-epochs] input", "Enter")
+    page.fill("[data-ae-patience] input", "60"); page.press("[data-ae-patience] input", "Enter")
+    page.fill("[data-ae-restarts] input", "3"); page.press("[data-ae-restarts] input", "Enter")
+    page.wait_for_timeout(500)
+    check("up to 600 epochs, stopping after 60 without improvement" in text(page, "[data-ae-summary]") and "constant" not in text(page, "[data-ae-summary]"), "back at the defaults, the summary reads as before")
+
+
+def part_gaps(page, shots: bool) -> None:
+    """A rectangle cut out of SOME samples only: the page says how many samples miss part of the domain, the missing part is estimated (functional) or left out of the loss (pixels), the samples
+    that lack it count in proportion to what was measured (a switch of step 5), and the Samples tab says what each sample lacks."""
+    print("a rectangle cut out of some samples only")
+    ids = [i for i in api(page, "GET", "/api/samples")["ids"] if i.startswith("S")]
+    some = ids[::6][:8]
+    api(page, "POST", "/api/state/regions", {"ex": [300, 360], "em": [400, 480], "samples": some})
+    page.wait_for_timeout(1500)
+    page.reload()
+    page.wait_for_selector("[data-fpca-panel='1']", timeout=20000)
+    step(page, 2)
+    page.wait_for_selector("[data-fpca-counts]", timeout=20000)
+    page.wait_for_timeout(800)
+    facts = page.inner_text("[data-fpca-counts]")
+    check("Samples that miss part of the domain" in facts and f"{len(some)} (at most" in facts, f"step 2 says how many samples miss part of the domain ({facts[-110:]!r})")
+    check(page.input_value("[data-fpca-gaps]") == "auto", "step 2 offers to estimate the missing parts from the other samples (the default)")
+    step(page, 5)
+    page.wait_for_selector("[data-ae-numbers] [data-ae-stat='params']", timeout=60000)
+    page.click("[data-ae-advanced] summary")
+    check(page.locator("[data-ae-gap-weighting] input").is_checked() and "Weigh samples that lack part of the domain" in text(page, "[data-ae-advanced]")
+          and "counts in proportion to the share of the EEM that was measured" in text(page, "[data-ae-gap-weighting-words]"), "step 5: 'Weigh samples that lack part of the domain' is on by default and explained")
+    if shots:
+        shot(page, "ae_flow_gap_weighting")
+    page.click("[data-ae-advanced] summary")
+    step(page, 6)
+    open_settings(page)
+    for sel, val in (("[data-ae-epochs] input", "30"), ("[data-ae-patience] input", "10"), ("[data-ae-restarts] input", "1")):
+        page.fill(sel, val)
+        page.press(sel, "Enter")
+    page.wait_for_timeout(500)
+    rid = train(page)
+    pl = payload(page, rid)
+    got = api(page, "GET", f"{BASE_API}/{rid}")
+    check(any(f"{len(some)} sample(s) miss part of the domain" in n for n in pl["notes"]), "the result notes say that the missing parts were estimated")
+    check(got["result"]["params"]["gap_weighting"] == "observed" and got["result"]["params"]["input"]["fluorescence"]["gaps"] == "auto", "the request carried the weighting and the estimate of the gaps")
+    tab(page, "samples")
+    shares = [c.strip() for c in page.locator("[data-ae-sample-missing-share]").all_inner_texts()]
+    check(len(shares) == len(some) and all(c.endswith("% missing") for c in shares), f"{len(some)} samples carry the note '… % missing' under their name ({shares[:3]})")
+    page.click(f"[data-ae-sample-row][data-id='{some[0]}']")
+    page.wait_for_selector("[data-ae-sample-missing]", timeout=30000)
+    words = text(page, "[data-ae-sample-missing]")
+    check(some[0] in words and "lacks" in words and "estimate of that part" in words, f"the sample view says what it lacks ({words[:90]!r})")
+    other = next(i for i in ids if i not in some)
+    page.click(f"[data-ae-sample-row][data-id='{other}']")
+    page.wait_for_function(f"() => document.querySelector('[data-ae-sample-view]')?.dataset.id === '{other}'", timeout=30000)
+    page.wait_for_timeout(1500)
+    check(page.locator("[data-ae-sample-missing]").count() == 0, "a complete sample has no such sentence")
+    if shots:
+        page.click(f"[data-ae-sample-row][data-id='{some[0]}']")
+        page.wait_for_selector("[data-ae-sample-missing]", timeout=30000)
+        page.wait_for_timeout(1500)
+        shot(page, "ae_flow_gap_sample")
+    page.set_viewport_size({"width": 600, "height": 900})
+    page.wait_for_timeout(700)
+    check(overflow(page) <= 1, f"at 600 px the Samples tab with a sample that lacks a part does not scroll sideways ({overflow(page)} px)")
+    page.set_viewport_size({"width": 1500, "height": 1000})
+    page.wait_for_timeout(500)
+    tab(page, "latent")                                                  # (the tab that is open is remembered: leave the page as the other parts expect it)
+    # switched off, the request says so
+    step(page, 5)
+    page.click("[data-ae-advanced] summary")
+    page.click("[data-ae-gap-weighting] input")
+    page.wait_for_timeout(300)
+    check(not page.locator("[data-ae-gap-weighting] input").is_checked(), "the weighting can be switched off")
+    page.click("[data-ae-advanced] summary")
+    rid2 = train(page)
+    check(api(page, "GET", f"{BASE_API}/{rid2}")["result"]["params"]["gap_weighting"] == "equal", "...and the next network was trained with every sample counting alike")
+    step(page, 5)
+    page.click("[data-ae-advanced] summary")
+    page.click("[data-ae-gap-weighting] input")                          # (on again, as it was)
+    page.click("[data-ae-advanced] summary")
+    # the region is removed again, and the settings are back at their defaults, so that nothing else depends on this part
+    api(page, "DELETE", "/api/state/regions/" + page.evaluate("fetch('/api/project').then(r => r.json())")["state"]["regions"][-1]["id"])
+    page.wait_for_timeout(1000)
+    step(page, 6)
+    open_settings(page)
+    for sel, val in (("[data-ae-epochs] input", "600"), ("[data-ae-patience] input", "60"), ("[data-ae-restarts] input", "3")):
+        page.fill(sel, val)
+        page.press(sel, "Enter")
+    page.wait_for_timeout(500)
+
+
 def part_cancel_and_queue(page) -> None:
     print("cancel, a second click, a refusal")
     step(page, 6)
@@ -695,8 +858,12 @@ def part_layout(page, shots: bool) -> None:
             step(page, n)
             page.wait_for_timeout(800)
             if n == 7:
-                for t in ("latent", "traversals", "samples", "interpolation"):
+                for t in ("latent", "traversals", "nonlinear", "samples", "interpolation"):
                     tab(page, t); page.wait_for_timeout(2200); look(f"7/{t}")
+                    if t == "nonlinear":
+                        for sid in NL_SECTIONS:
+                            nl_section(page, sid); look(f"7/nonlinear/{sid}")
+                        nl_section(page, "response", wait=False)
                 tab(page, "latent")
             elif n == 8:
                 for t in ("training", "quality", "latent", "stability", "smoothness"):
@@ -762,6 +929,7 @@ def part_second_project(page, title: str) -> None:
 def part_sizes(page, shots: bool) -> None:
     print("a few dozen samples and a thousand samples")
     tmp = tempfile.mkdtemp(prefix="ae-flow-data-")
+    atexit.register(shutil.rmtree, tmp, True)                                      # (the .mat files of this part: removed when the run ends)
     # 20 samples: fewer than 30, so k-fold validation is used; the page says so and the network is trained
     import_mat(page, make_mat(20, tmp), "twenty samples")
     goto(page, "/autoencoders", 2.5)
@@ -803,6 +971,13 @@ def part_sizes(page, shots: bool) -> None:
     tab(page, "traversals")
     page.wait_for_selector("[data-ae-traversal]", timeout=90000)
     check(True, "1000 samples: the traversals are drawn")
+    tab(page, "nonlinear")
+    for sid, label in NL_SECTIONS.items():
+        t0 = time.time()
+        nl_section(page, sid)
+        took = time.time() - t0
+        check(took < 90, f"1000 samples: '{label}' answers in {took:.1f} s")
+    check(overflow(page) <= 1, "1000 samples: no sideways scroll in the tab Nonlinear effects")
     if shots:
         shot(page, "ae_flow_1000", full_page=True)
 
@@ -825,8 +1000,14 @@ def part_shots(page) -> None:
                 step(page, n)
                 page.wait_for_timeout(1500)
                 if n == 7:
-                    for t in ("latent", "traversals", "samples", "interpolation"):
-                        tab(page, t); page.wait_for_timeout(2500); shot(page, f"ae_{tag}_7_{t}", full_page=True)
+                    for t in ("latent", "traversals", "nonlinear", "samples", "interpolation"):
+                        tab(page, t); page.wait_for_timeout(2500)
+                        if t == "nonlinear":
+                            for sid in NL_SECTIONS:
+                                nl_section(page, sid); shot(page, f"ae_{tag}_7_nonlinear_{sid}", full_page=True)
+                            nl_section(page, "response", wait=False)
+                        else:
+                            shot(page, f"ae_{tag}_7_{t}", full_page=True)
                 elif n == 8:
                     for t in ("training", "quality", "latent", "stability", "smoothness"):
                         tab(page, t); page.wait_for_timeout(2000); shot(page, f"ae_{tag}_8_{t}", full_page=True)
@@ -836,6 +1017,476 @@ def part_shots(page) -> None:
     page.set_viewport_size({"width": 1500, "height": 1000})
 
 
+# ----------------------------------------------------------------------------------------------------------------------- the tab Nonlinear effects
+NL_SECTIONS = {"response": "Response curves", "bends": "Where it bends", "local": "Local effects", "pair": "Two codes"}
+NL_SENTENCES = {"response": "Each chart moves one code from the low to the high end of its range while all the other codes stay at their average",
+                "bends": "For every code, each pixel of the EEM is followed along the code and compared with the best straight line",
+                "local": "The loading of a code is what one standard deviation of the code does to the EEM",
+                "pair": "Two codes are moved together on a grid while all the others stay at their average"}
+NL_READY = {"response": "[data-ae-nl-curve]", "bends": "[data-ae-nl-share-chart]", "local": "[data-ae-nl-change-chart]", "pair": "[data-ae-nl-heat], [data-ae-nl-pair-none]"}
+# what a Plotly chart of the page holds: its traces (type, mode, name, number of points, line width, colour range), the labels written on it, the titles of its axes, the dotted lines
+GD_INFO = """(sel) => { let gd = document.querySelector(sel); if (!gd) return null; if (!gd.data) gd = gd.querySelector('.js-plotly-plot'); if (!gd || !gd.data) return null; const L = gd._fullLayout || {};
+  const ann = (gd.layout.annotations || []).map((a) => String(a.text || '').replace(/<[^>]*>/g, ''));
+  const axes = Object.keys(L).filter((k) => /^[xy]axis\\d*$/.test(k) && L[k].title && L[k].title.text).map((k) => k + ':' + L[k].title.text);
+  return { data: gd.data.map((t) => ({ type: t.type, mode: t.mode || null, name: t.name || '', n: t.x ? t.x.length : (t.z ? t.z.length : 0), width: t.line ? t.line.width : null, zmin: t.zmin === undefined ? null : t.zmin, zmax: t.zmax === undefined ? null : t.zmax,
+                                  y: t.type === 'bar' ? Array.from(t.y) : null, x: t.type === 'bar' ? Array.from(t.x) : null })),
+           ann, axes, xrange: L.xaxis ? L.xaxis.range : null, ytitle: L.yaxis && L.yaxis.title ? L.yaxis.title.text : '', shapes: (gd.layout.shapes || []).map((s) => s.y0) }; }"""
+
+
+def gd_info(page, selector: str) -> dict:
+    info = page.evaluate(GD_INFO, selector)
+    assert info is not None, f"no chart at {selector}"
+    return info
+
+
+def nl_section(page, sid: str, wait: bool = True) -> None:
+    """Choose a section of the tab and wait for its answer."""
+    page.click(f"[data-ae-nl-section='{sid}']")
+    page.wait_for_selector(f"[data-ae-nl-panel='{sid}']", timeout=20000)
+    if wait:
+        nl_idle(page, sid)
+
+
+def nl_idle(page, sid: str, timeout: int = 120000) -> None:
+    """Wait until the section shows an answer and no request is on its way (an old answer is dimmed while a new one is computed)."""
+    page.wait_for_selector(f"[data-ae-nl-panel='{sid}'] :is({NL_READY[sid]})", timeout=timeout)
+    page.wait_for_function("(sid) => { const p = document.querySelector(`[data-ae-nl-panel='${sid}']`); return !!p && !p.querySelector('.fp-dim') && !p.querySelector('.fp-wait'); }", arg=sid, timeout=timeout)
+    page.wait_for_timeout(600)
+
+
+def nl_ask(page, sid: str, action, route: str | None = None, timeout: int = 60000) -> dict:
+    """Do `action` (type a value, press a button) and return the body of the request that the page then sends to the route of the section; waits for the answer."""
+    route = route or sid
+    with page.expect_request(lambda rq: rq.method == "POST" and rq.url.endswith(f"/{route}"), timeout=timeout) as info:
+        action()
+    body = info.value.post_data_json
+    nl_idle(page, sid)
+    return body
+
+
+def nl_type(page, selector: str, value) -> None:
+    page.fill(selector, str(value))
+    page.press(selector, "Enter")
+
+
+def nl_open(page, rid: str | None = None, section: str | None = None) -> None:
+    """Step 7, the tab 'Nonlinear effects' (the network `rid` is chosen in the result bar first), in the given section."""
+    if rid and page.locator("[data-ae-resultbar] select").count() and page.input_value("[data-ae-resultbar] select") != rid:
+        page.select_option("[data-ae-resultbar] select", rid)
+        page.wait_for_timeout(1500)
+    step(page, 7)
+    page.wait_for_selector("[data-ae-cards]", timeout=60000)
+    tab(page, "nonlinear")
+    page.wait_for_selector("[data-ae-nonlinear-tab]", timeout=20000)
+    if section:
+        nl_section(page, section)
+
+
+def sample_ids(page) -> list[str]:
+    got = api(page, "GET", "/api/samples")
+    return [i for i, r in zip(got["ids"], got["roles"]) if r == "sample"]
+
+
+def squeeze(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def part_nonlinear(page, rid: str, shots: bool) -> None:
+    print("step 7: the tab Nonlinear effects (response curves, where it bends, local effects, two codes)")
+    pl = payload(page, rid)
+    d, n = pl["latent_dim"], pl["n"]
+    shown = min(d, 8)
+    ids = sample_ids(page)
+    logs0 = len(page.logs)
+    nl_open(page, rid)
+    tabs = page.locator("[data-ae-tab]").all_inner_texts()
+    check(tabs == ["Latent space", "Traversals", "Nonlinear effects", "Samples", "Interpolation", "Generate"], f"the tab 'Nonlinear effects' comes after 'Traversals' ({tabs})")
+    check(page.get_attribute("[data-ae-tab='nonlinear']", "aria-selected") == "true" and page.locator("[data-ae-panel='nonlinear'] [data-ae-nonlinear-tab]").count() == 1, "the tab opens its panel")
+    labels = page.locator("[data-ae-nl-section]").all_inner_texts()
+    check(labels == list(NL_SECTIONS.values()), f"four sections: {labels}")
+    check(all(page.get_attribute(f"[data-ae-nl-section='{k}']", "title") for k in NL_SECTIONS), "every section has a tooltip")
+    nl_idle(page, "response")
+
+    # ------------------------------------------------------------------------------------------------------- response curves
+    P = "[data-ae-nl-panel='response']"
+    check(page.get_attribute("[data-ae-nl-section='response']", "aria-pressed") == "true", "'Response curves' is the first section")
+    check(text(page, f"{P} [data-ae-nl-explain]").startswith(NL_SENTENCES["response"]), "the section starts with one sentence that says what it shows")
+    check(page.locator("[data-ae-nl-curve]").count() == shown, f"one chart for each code ({shown})")
+    chips = [squeeze(c.replace("×", "")) for c in page.locator("[data-ae-nl-feature]").all_inner_texts()]
+    check(chips == ["Intensity at the pixel this code moves most", "Overall intensity (the average over the whole EEM)"], f"the features at first: the pixel each code moves most and the overall intensity ({chips})")
+    check(page.locator("[data-ae-nl-legend-item]").count() == 2 and page.locator("[data-ae-nl-curve='1'] [data-ae-nl-words] li").count() == 2, "a legend, and under each chart one sentence for every feature")
+    ans = api(page, "POST", f"{BASE_API}/{rid}/response", {"span": 3, "n_points": 41, "overlay": True})
+    first = ans["codes"][0]["curves"]["f1"]
+    check(squeeze(text(page, "[data-ae-nl-curve='1'] [data-ae-nl-words] li:first-child")) == squeeze(first["words"]) and page.get_attribute("[data-ae-nl-curve='1'] [data-ae-nl-words] li:first-child", "data-ae-nl-kind-of") == first["kind"],
+          f"the sentence under the first chart is the server's ({first['kind']}: {first['words'][:70]!r})")
+    g = gd_info(page, "[data-ae-nl-curve='1']")
+    thick = [t for t in g["data"] if t["mode"] == "lines" and t["width"] == 2.8]
+    dots = [t for t in g["data"] if t["name"].startswith("Samples")]
+    check(len(thick) == 2 and thick[0]["n"] == 41 and g["xrange"] == [-3, 3], f"each chart draws two curves of 41 positions over ±3 SD ({len(thick)}, {thick[0]['n'] if thick else None}, {g['xrange']})")
+    check(len(dots) == 2 and dots[0]["n"] == n, f"the {n} training samples are drawn as dots around the curves ({[t['n'] for t in dots]})")
+    check(page.locator("[data-ae-nl-curve='1'] .fig-btn").count() >= 2, "the charts have the .rds and .fig buttons")
+    if shots:
+        shot(page, "ae_flow_nl_response", full_page=True)
+    # the range and the number of points
+    body = nl_ask(page, "response", lambda: nl_type(page, "[data-ae-nl-span] input", 2))
+    g = gd_info(page, "[data-ae-nl-curve='1']")
+    check(body["span"] == 2 and g["xrange"] == [-2, 2], f"'Range (± SD)' 2 redraws the charts over ±2 SD ({g['xrange']})")
+    body = nl_ask(page, "response", lambda: nl_type(page, "[data-ae-nl-points] input", 21))
+    g = gd_info(page, "[data-ae-nl-curve='1']")
+    check(body["n_points"] == 21 and [t["n"] for t in g["data"] if t["mode"] == "lines" and t["width"] == 2.8] == [21, 21], "'Points per curve' 21 draws 21 positions")
+    body = nl_ask(page, "response", lambda: nl_type(page, "[data-ae-nl-span] input", 9))
+    check(body["span"] == 4 and page.input_value("[data-ae-nl-span] input") == "4", "a range beyond the limit is brought back to 4")
+    body = nl_ask(page, "response", lambda: nl_type(page, "[data-ae-nl-span] input", 3))
+    body = nl_ask(page, "response", lambda: nl_type(page, "[data-ae-nl-points] input", 41))
+    # the training samples, and the comparison of shapes
+    body = nl_ask(page, "response", lambda: page.locator("[data-ae-nl-overlay] input").uncheck())
+    g = gd_info(page, "[data-ae-nl-curve='1']")
+    check(body["overlay"] is False and not [t for t in g["data"] if t["name"].startswith("Samples")], "'Show the training samples' off: no dots (and the server is not asked for them)")
+    nl_ask(page, "response", lambda: page.locator("[data-ae-nl-overlay] input").check())
+    check(page.locator("[data-ae-nl-relative] input").is_checked() and gd_info(page, "[data-ae-nl-curve='1']")["ytitle"] == "Scaled value (curve: 0 to 1)", "'Compare shapes' is on at first: each feature is scaled from 0 to 1")
+    page.locator("[data-ae-nl-relative] input").uncheck()
+    page.wait_for_timeout(700)
+    check(gd_info(page, "[data-ae-nl-curve='1']")["ytitle"] != "Scaled value (curve: 0 to 1)", "switched off, the real values are drawn")
+    page.locator("[data-ae-nl-relative] input").check()
+    page.wait_for_timeout(500)
+    # curves of single samples
+    body = nl_ask(page, "response", lambda: page.locator("[data-ae-nl-ice] input").check())
+    g = gd_info(page, "[data-ae-nl-curve='1']")
+    thin = [t for t in g["data"] if t["mode"] == "lines" and t["width"] == 1.1]
+    check(body["ice"] == {"codes": list(range(1, shown + 1)), "n": 12} and len(thin) == 24, f"curves of single samples: 12 samples for each of the 2 features ({len(thin)} thin lines)")
+    check(page.locator("[data-ae-nl-ice-names]").count() == 1 and "parallel" in text(page, P), "…with the sentence on what parallel curves mean, and a field for the names of the samples")
+    body = nl_ask(page, "response", lambda: page.fill("[data-ae-nl-ice-names]", f"{ids[0]}, {ids[4]}"))
+    g = gd_info(page, "[data-ae-nl-curve='1']")
+    check(body["ice"]["samples"] == [ids[0], ids[4]] and len([t for t in g["data"] if t["mode"] == "lines" and t["width"] == 1.1]) == 4, f"typed names ({ids[0]}, {ids[4]}) give 2 thin lines per feature")
+    page.fill("[data-ae-nl-ice-names]", f"{ids[0]}, nope")
+    page.wait_for_timeout(900)
+    check("Not a sample of this network: nope." in text(page, P), "a name that is not a sample of the network is said so")
+    nl_ask(page, "response", lambda: page.fill("[data-ae-nl-ice-names]", ""))
+    nl_ask(page, "response", lambda: page.locator("[data-ae-nl-ice] input").uncheck())
+    # typed features: a pixel, a box; a refusal in the server's words
+    kinds = page.locator("[data-ae-nl-kind] option").evaluate_all("els => els.map(e => e.value)")
+    check(kinds == ["moved", "point", "region_mean", "region_max", "total", "coordinate"], f"the kinds of feature (no absorbance in this network) ({kinds})")
+    page.select_option("[data-ae-nl-kind]", "point")
+    ex, em = page.input_value("[data-ae-nl-ex] input"), page.input_value("[data-ae-nl-em] input")
+    check(ex != "" and em != "", f"the fields start at the peak of the mean EEM ({ex} / {em} nm)")
+    body = nl_ask(page, "response", lambda: page.click("[data-ae-nl-feature-add]"))
+    check([f["kind"] for f in body["features"]] == ["moved", "total", "point"] and body["features"][2]["ex"] == float(ex) and body["features"][2]["em"] == float(em), f"'Add this feature' sends the pixel ({body['features'][2]})")
+    check(page.locator("[data-ae-nl-feature]").count() == 3 and page.locator("[data-ae-nl-legend-item]").count() == 3 and page.locator("[data-ae-nl-curve='1'] [data-ae-nl-words] li").count() == 3, "a third chip, legend entry and sentence")
+    third = squeeze(text(page, "[data-ae-nl-curve='1'] [data-ae-nl-words] li:nth-child(3)"))
+    check(third.startswith("Pixel at"), f"the sentence names the pixel ({third[:60]!r})")
+    page.select_option("[data-ae-nl-kind]", "region_mean")
+    check(page.locator("[data-ae-nl-ex2]").count() == 1 and page.locator("[data-ae-nl-em2]").count() == 1, "a box has its two ends")
+    body = nl_ask(page, "response", lambda: page.click("[data-ae-nl-feature-add]"))
+    check(body["features"][3]["kind"] == "region_mean" and len(body["features"][3]["ex"]) == 2, f"'Mean intensity in a box' is sent with its two ranges ({body['features'][3]})")
+    check(page.locator("[data-ae-nl-feature]").count() == 4 and len(gd_info(page, "[data-ae-nl-curve='1']")["data"]) >= 8, "four features are drawn, each with its own line style and marker")
+    page.select_option("[data-ae-nl-kind]", "point")
+    page.fill("[data-ae-nl-ex] input", "5000")
+    page.press("[data-ae-nl-ex] input", "Enter")
+    with page.expect_response(lambda r: r.url.endswith("/response") and r.status == 400, timeout=60000):
+        page.click("[data-ae-nl-feature-add]")
+    page.wait_for_selector("[data-ae-nl-feature-error]", timeout=20000)
+    nl_idle(page, "response")
+    check("outside the range" in text(page, "[data-ae-nl-feature-error]") and page.locator("[data-ae-nl-feature]").count() == 4, f"an impossible pixel is refused with the server's sentence and not kept ({text(page, '[data-ae-nl-feature-error]')[:90]!r})")
+    page.fill("[data-ae-nl-ex] input", ex)
+    page.press("[data-ae-nl-ex] input", "Enter")
+    # the picture of the mean EEM: a click fills the pixel, a dragged box fills the box
+    page.click("[data-ae-nl-pick] summary")
+    page.wait_for_selector("[data-ae-nl-picture] .js-plotly-plot", timeout=30000)
+    page.wait_for_timeout(1200)
+    box = page.locator("[data-ae-nl-picture] .nsewdrag").bounding_box()
+    page.select_option("[data-ae-nl-kind]", "total")
+    moved = False
+    for fx, fy in ((0.5, 0.45), (0.35, 0.3), (0.6, 0.55), (0.45, 0.2), (0.25, 0.5), (0.7, 0.4)):
+        page.mouse.click(box["x"] + fx * box["width"], box["y"] + fy * box["height"])
+        page.wait_for_timeout(500)
+        if page.input_value("[data-ae-nl-kind]") == "point":
+            moved = True
+            break
+    now = (page.input_value("[data-ae-nl-ex] input"), page.input_value("[data-ae-nl-em] input"))
+    check(moved and 230 <= float(now[0]) <= 460 and 280 <= float(now[1]) <= 640, f"a click on the picture chooses 'Intensity at a pixel' and fills its wavelengths ({now[0]} / {now[1]} nm)")
+    page.click("[data-ae-nl-picture] button:has-text('Select region')")
+    page.mouse.move(box["x"] + 0.3 * box["width"], box["y"] + 0.3 * box["height"])
+    page.mouse.down()
+    page.mouse.move(box["x"] + 0.6 * box["width"], box["y"] + 0.7 * box["height"], steps=10)
+    page.mouse.up()
+    page.wait_for_timeout(700)
+    check(page.input_value("[data-ae-nl-kind]") == "region_mean" and page.input_value("[data-ae-nl-ex2] input") != "" and float(page.input_value("[data-ae-nl-ex2] input")) > float(page.input_value("[data-ae-nl-ex] input")),
+          f"a dragged box chooses 'Mean intensity in a box' and fills its four numbers ({[page.input_value(f'[data-ae-nl-{k}] input') for k in ('ex', 'ex2', 'em', 'em2')]})")
+    page.click("[data-ae-nl-pick] summary")
+    for _ in range(2):                                                             # back to the two features of the start
+        page.locator("[data-ae-nl-feature] [data-ae-nl-feature-remove]").last.click()
+        nl_idle(page, "response")
+    check(page.locator("[data-ae-nl-feature]").count() == 2, "a chip can be removed (the last one cannot)")
+
+    # ------------------------------------------------------------------------------------------------------- where it bends
+    nl_section(page, "bends")
+    P = "[data-ae-nl-panel='bends']"
+    check(text(page, f"{P} [data-ae-nl-explain]").startswith(NL_SENTENCES["bends"]), "'Where it bends' starts with its sentence")
+    bends = api(page, "POST", f"{BASE_API}/{rid}/bends", {"span": 3, "n_points": 41})
+    check(squeeze(text(page, f"{P} [data-ae-nl-words]")) == squeeze(bends["words"]), f"the sentence on which code bends most is the server's ({bends['words'][:80]!r})")
+    strip = gd_info(page, f"{P} [data-ae-nl-strip]")
+    maps = [t for t in strip["data"] if t["type"] == "heatmap" and t["zmax"] == 1 and t["zmin"] == 0 and t["name"]]
+    check(len(maps) == shown and all(a.startswith(f"z{i + 1} · ") for i, a in enumerate(strip["ann"][:shown])), f"one map of NL for each code on one colour scale from 0 to 1, titled with its share ({strip['ann'][:3]})")
+    check(page.locator(f"{P} [data-ae-nl-colour-note]").count() == 1 and page.locator(f"{P} [data-ae-nl-strip] .fig-btn").count() >= 2, "the sentence on the colour bar, and the .rds / .fig buttons")
+    bars = gd_info(page, f"{P} [data-ae-nl-share-chart]")
+    bar = next(t for t in bars["data"] if t["type"] == "bar")
+    want = [0.0 if s is None else s for s in bends["share"]]
+    check(len(bar["x"]) == d and all(abs(a - b) < 1e-6 for a, b in zip(bar["y"], want)) and bars["shapes"] == [0.05], f"the bars are the shares of the server ({[round(v, 3) for v in bar['y'][:4]]}) with a dotted line at 5 %")
+    check("The dotted line is 5 %" in text(page, f"{P} [data-ae-nl-share-note]"), "the note under the bars explains the dotted line")
+    if shots:
+        shot(page, "ae_flow_nl_bends", full_page=True)
+    page.click(f"{P} [data-ae-nl-bends-show] button:has-text('Size of the effect')")
+    page.wait_for_timeout(1200)
+    amp = gd_info(page, f"{P} [data-ae-nl-strip]")
+    check(any(t["type"] == "heatmap" and t["zmin"] == 0 and (t["zmax"] or 0) != 1 and t["name"] for t in amp["data"]) and page.locator(f"{P} [data-ae-nl-colour-note]").count() == 0, "'Size of the effect' draws the range of each pixel along the code instead")
+    page.click(f"{P} [data-ae-nl-bends-show] button:has-text('Where it bends')")
+    page.wait_for_timeout(800)
+    body = nl_ask(page, "bends", lambda: nl_type(page, "[data-ae-nl-span] input", 1.5))
+    check(body == {"span": 1.5, "n_points": 41}, f"the range of this section is asked for from the server ({body})")
+    nl_ask(page, "bends", lambda: nl_type(page, "[data-ae-nl-span] input", 3))
+
+    # ------------------------------------------------------------------------------------------------------- local effects
+    nl_section(page, "local")
+    P = "[data-ae-nl-panel='local']"
+    check(text(page, f"{P} [data-ae-nl-explain]").startswith(NL_SENTENCES["local"]), "'Local effects' starts with its sentence")
+    check(page.locator("[data-ae-nl-local-code] option").count() == d and page.input_value("[data-ae-nl-local-code]") == "1", f"the code to look at: {d} choices, the first at first")
+    local = api(page, "POST", f"{BASE_API}/{rid}/local", {"code": 1})
+    check(squeeze(text(page, f"{P} [data-ae-nl-words]")) == squeeze(local["words"]), f"the sentence on how the loading changes is the server's ({local['words'][:80]!r})")
+    ld = gd_info(page, f"{P} [data-ae-nl-loadings]")
+    line = text(page, f"{P} [data-ae-nl-sample-line]")
+    check(len(ld["ann"]) == 4 and ld["ann"][0] == "At the mean code" and all(" SD" in a for a in ld["ann"][1:]) and "10th percentile of z1" in line and "median of z1" in line and "90th percentile of z1" in line,
+          f"the loading at the mean code and at the samples at the 10th, 50th and 90th percentile, on one colour scale ({ld['ann']})")
+    check(page.locator(f"{P} [data-ae-nl-variability] .js-plotly-plot").count() == 1, "the map of where the loading differs between samples")
+    ch = gd_info(page, f"{P} [data-ae-nl-change-chart]")
+    check(next(t for t in ch["data"] if t["type"] == "bar")["x"] == [f"z{i + 1}" for i in range(d)], "the bars of how much the shape of the effect changes: one per code")
+    check("0 means the picture of the effect has the same shape" in text(page, f"{P} [data-ae-nl-change-note]"), "the note on what 0 means")
+    if shots:
+        shot(page, "ae_flow_nl_local", full_page=True)
+    if d >= 2:
+        body = nl_ask(page, "local", lambda: page.select_option("[data-ae-nl-local-code]", "2"))
+        check(body == {"code": 2}, f"another code is asked for ({body})")
+    page.click(f"{P} [data-ae-nl-local-mode] button:has-text('Samples I choose')")
+    page.wait_for_selector("[data-ae-nl-local-pick]", timeout=10000)
+    body = nl_ask(page, "local", lambda: (page.select_option("[data-ae-nl-local-pick]", ids[5]), page.click("[data-ae-nl-local-add]")))
+    ld = gd_info(page, f"{P} [data-ae-nl-loadings]")
+    check(body["samples"] == [ids[5]] and page.locator("[data-ae-nl-local-chip]").count() == 1 and len(ld["ann"]) == 2 and ld["ann"][1].startswith(ids[5]) and "chosen by you" in text(page, f"{P} [data-ae-nl-sample-line]"),
+          f"a chosen sample is compared with the mean code ({ld['ann']})")
+    body = nl_ask(page, "local", lambda: page.click("[data-ae-nl-local-chip] .x"))
+    check("samples" not in body and page.locator("[data-ae-nl-local-chip]").count() == 0, "removing the chip goes back to the percentiles")
+    page.click(f"{P} [data-ae-nl-local-mode] button:has-text('10th, 50th and 90th percentile')")
+    nl_ask(page, "local", lambda: page.select_option("[data-ae-nl-local-code]", "1"))
+
+    # ------------------------------------------------------------------------------------------------------- two codes
+    nl_section(page, "pair")
+    P = "[data-ae-nl-panel='pair']"
+    check(text(page, f"{P} [data-ae-nl-explain]").startswith(NL_SENTENCES["pair"]), "'Two codes' starts with its sentence")
+    if d < 2:
+        check(page.locator("[data-ae-nl-pair-none]").count() == 1, "a network with one code says that there are no two codes to look at")
+        tab(page, "latent")
+        return
+    pair = api(page, "POST", f"{BASE_API}/{rid}/pair", {"grid": 5, "span": 2})
+    got = [int(page.input_value("[data-ae-nl-pair-i]")), int(page.input_value("[data-ae-nl-pair-j]"))]
+    check(got == pair["codes"] and pair["auto"] is True, f"at first the two codes with the largest nonlinear share are chosen ({got})")
+    check(squeeze(text(page, f"{P} [data-ae-nl-pair-words]")) == squeeze(pair["words"]) and "interaction index" in text(page, f"{P} [data-ae-nl-index]").lower(), f"the card and the sentence on the interaction are the server's ({pair['words'][:80]!r})")
+    gal = gd_info(page, f"{P} [data-ae-nl-gallery]")
+    check(len(gal["ann"]) == 25, f"the gallery of 5 × 5 pictures, each labelled with the positions of the two codes ({gal['ann'][:3]})")
+    heat = gd_info(page, f"{P} [data-ae-nl-heat]")
+    check([t["type"] for t in heat["data"]] == ["heatmap", "scatter"] and heat["data"][1]["n"] > 0, f"the heat map of a feature over the two codes with {heat['data'][1]['n']} samples as dots")
+    check(page.locator(f"{P} [data-ae-nl-interaction] .js-plotly-plot").count() == 1 and page.locator(f"{P} [data-ae-nl-gallery] .fig-btn").count() >= 2, "the map of where the effects do not add up, and the .rds / .fig buttons")
+    if shots:
+        shot(page, "ae_flow_nl_pair", full_page=True)
+    for g_ in (3, 7, 5):
+        body = nl_ask(page, "pair", lambda g_=g_: page.click(f"[data-ae-nl-pair-grid] button:text-is('{g_}')"))
+        check(body["grid"] == g_ and len(gd_info(page, f"{P} [data-ae-nl-gallery]")["ann"]) == g_ * g_, f"{g_} × {g_} pictures per code: {g_ * g_} pictures in the gallery")
+    body = nl_ask(page, "pair", lambda: nl_type(page, "[data-ae-nl-pair-span] input", 1))
+    check(body["span"] == 1 and "codes" not in body, f"the range of the two codes (±1 SD) is asked for, the server still chooses the codes ({body})")
+    nl_ask(page, "pair", lambda: nl_type(page, "[data-ae-nl-pair-span] input", 2))
+    page.select_option("[data-ae-nl-pair-j]", page.input_value("[data-ae-nl-pair-i]"))
+    page.wait_for_timeout(900)
+    check("Choose two different codes." in text(page, P), "the same code twice: 'Choose two different codes.'")
+    page.select_option("[data-ae-nl-pair-j]", str(pair["codes"][1]))
+    page.wait_for_timeout(900)
+    nl_idle(page, "pair")
+    page.select_option("[data-ae-nl-kind]", "total")
+    body = nl_ask(page, "pair", lambda: page.click("[data-ae-nl-feature-add]"))
+    check(body["feature"]["kind"] == "total" and "Overall intensity" in text(page, f"{P} [data-ae-nl-pair-feature]"), f"another feature for the heat map ({body['feature']})")
+    page.select_option("[data-ae-nl-kind]", "moved")
+    body = nl_ask(page, "pair", lambda: page.click("[data-ae-nl-feature-add]"))
+    check("feature" not in body, "…and back to the pixel the two codes move most")
+    check(not errors(page, logs0), f"no console error in the four sections ({errors(page, logs0)[:2]})")
+    warns = [x for x in page.logs[logs0:] if x.startswith("[warning]")]
+    check(not warns, f"no console warning in the four sections ({[w[:140] for w in warns[:2]]})")
+    nl_section(page, "response", wait=False)
+    tab(page, "latent")                                                            # (the other parts expect the first tab, as part_results leaves it)
+
+
+def part_nonlinear_both(page, rid: str, rid_fluo: str, shots: bool) -> None:
+    print("the tab Nonlinear effects for a network on fluorescence and absorbance")
+    pl = payload(page, rid)
+    d = pl["latent_dim"]
+    shown = min(d, 8)
+    nl_open(page, rid, "response")
+    P = "[data-ae-nl-panel='response']"
+    kinds = page.locator("[data-ae-nl-kind] option").evaluate_all("els => els.map(e => e.value)")
+    check(kinds == ["moved", "point", "region_mean", "region_max", "total", "absorbance", "coordinate"], f"the kinds of feature for fluorescence and absorbance ({kinds})")
+    page.select_option("[data-ae-nl-kind]", "absorbance")
+    wl = page.input_value("[data-ae-nl-wavelength] input")
+    body = nl_ask(page, "response", lambda: page.click("[data-ae-nl-feature-add]"))
+    check(body["features"][2] == {"kind": "absorbance", "wavelength": float(wl)}, f"a wavelength of the absorbance is sent ({body['features'][2]})")
+    check(page.locator("[data-ae-nl-relative] input").is_disabled() and page.locator("[data-ae-nl-relative] input").is_checked() and "The features have different units, so they are drawn scaled from 0 to 1." in text(page, P),
+          "other units: 'Compare shapes' is on, cannot be switched off, and the page says why")
+    page.select_option("[data-ae-nl-kind]", "total")
+    check(page.locator("[data-ae-nl-block]").count() == 1, "the overall value can be asked for of the fluorescence or of the absorbance")
+    page.select_option("[data-ae-nl-block]", "absorbance")
+    body = nl_ask(page, "response", lambda: page.click("[data-ae-nl-feature-add]"))
+    check(body["features"][3] == {"kind": "total", "block": "absorbance"}, f"the overall absorbance is sent ({body['features'][3]})")
+    page.select_option("[data-ae-nl-kind]", "coordinate")
+    page.select_option("[data-ae-nl-block]", "fluorescence")
+    body = nl_ask(page, "response", lambda: page.click("[data-ae-nl-feature-add]"))
+    chips = [squeeze(c.replace("×", "")) for c in page.locator("[data-ae-nl-feature]").all_inner_texts()]
+    check(body["features"][4]["kind"] == "coordinate" and chips[2] == f"Absorbance at {wl} nm" and chips[3].startswith("Overall absorbance") and chips[4].startswith("Coefficient 1 of the fluorescence"), f"the chips name what is measured ({chips})")
+    page.select_option("[data-ae-nl-kind]", "total")
+    page.select_option("[data-ae-nl-block]", "fluorescence")
+    nl_ask(page, "response", lambda: page.click("[data-ae-nl-feature-add]"))
+    page.click("[data-ae-nl-feature-add]")
+    page.wait_for_selector("[data-ae-nl-feature-error]", timeout=10000)
+    check("At most 6 features can be drawn at once" in text(page, "[data-ae-nl-feature-error]") and page.locator("[data-ae-nl-feature]").count() == 6, "a seventh feature is refused: 'At most 6 features can be drawn at once: remove one first.'")
+    if shots:
+        shot(page, "ae_flow_nl_response_both", full_page=True)
+    # the other sections show the absorbance as well
+    nl_section(page, "bends")
+    check(page.locator("[data-ae-nl-bend-curve]").count() == shown and "z1: absorbance" in text(page, "[data-ae-nl-bend-curve='1']") and page.locator("[data-ae-nl-bend-curve='1'] .fig-btn").count() >= 2, f"where it bends: a chart of the absorbance for each code ({shown})")
+    nl_section(page, "local")
+    check("Loading of z1 on the absorbance" in text(page, "[data-ae-nl-panel='local']") and "(absorbance)" in text(page, "[data-ae-nl-panel='local']"), "local effects: the loading on the absorbance and where it differs between samples")
+    nl_section(page, "pair")
+    check("Absorbance on the grid of" in text(page, "[data-ae-nl-panel='pair']") and "Interaction of the two codes on the absorbance" in text(page, "[data-ae-nl-panel='pair']"), "two codes: the absorbance on the grid and its interaction")
+    if shots:
+        shot(page, "ae_flow_nl_pair_both", full_page=True)
+    # a feature that the other network cannot show: the server's sentence, and a way back
+    nl_open(page, rid_fluo)
+    nl_section(page, "response", wait=False)                                       # (the answer is the refusal: nothing to wait for but the callout)
+    page.wait_for_selector("[data-ae-nl-error]", timeout=60000)
+    check("does not use the absorbance" in text(page, "[data-ae-nl-error]") and page.locator("[data-ae-nl-error] button:has-text('Use the usual features')").count() == 1, f"a network without absorbance says so and offers 'Use the usual features' ({text(page, '[data-ae-nl-error]')[:90]!r})")
+    page.click("[data-ae-nl-error] button:has-text('Use the usual features')")
+    nl_idle(page, "response")
+    check(page.locator("[data-ae-nl-feature]").count() == 2 and page.locator("[data-ae-nl-curve]").count() == min(payload(page, rid_fluo)["latent_dim"], 8), "…which draws the usual two features again")
+    tab(page, "latent")
+
+
+def train_with(page, codes: int) -> str:
+    """Train a small network with `codes` codes (few epochs: only its shape matters here) and wait for the results; the id of the network."""
+    step(page, 5)
+    page.fill("[data-ae-latent] input", str(codes))
+    page.press("[data-ae-latent] input", "Enter")
+    page.wait_for_timeout(600)
+    step(page, 6)
+    open_settings(page)
+    nl_type(page, "[data-ae-epochs] input", 40)
+    nl_type(page, "[data-ae-restarts] input", 1)
+    page.wait_for_timeout(400)
+    return train(page)
+
+
+def set_transposed(page, on: bool) -> None:
+    """The setting 'Axes of fluorescence maps' (emission across or excitation across), as the settings page keeps it; the page is loaded again to read it."""
+    page.evaluate("(on) => { let p = {}; try { p = JSON.parse(localStorage.getItem('fluoviz.prefs') || '{}'); } catch (e) { p = {}; } p.eemTranspose = on; localStorage.setItem('fluoviz.prefs', JSON.stringify(p)); }", on)
+    page.reload()
+    page.wait_for_selector("[data-fpca-panel], [data-ae-page]", timeout=60000)
+    page.wait_for_timeout(1500)
+
+
+def part_nonlinear_codes(page, rid1: str, shots: bool) -> None:
+    print("the tab Nonlinear effects: ten codes, one code, a reload, the other axes")
+    step(page, 5)
+    d0 = int(page.input_value("[data-ae-latent] input"))
+    # ten codes: the first eight are drawn, the others on request
+    rid10 = train_with(page, 10)
+    check(bool(rid10) and payload(page, rid10)["latent_dim"] == 10, f"a network with ten codes was trained ({rid10})")
+    nl_open(page, rid10, "response")
+    check(page.locator("[data-ae-nl-curve]").count() == 8 and page.locator("[data-ae-nl-all]").inner_text().strip() == "Show the other 2 codes", "ten codes: eight charts and the button 'Show the other 2 codes'")
+    page.click("[data-ae-nl-all]")                                                 # (the server has answered for every code already: no new request)
+    page.wait_for_timeout(1200)
+    check(page.locator("[data-ae-nl-curve]").count() == 10 and page.locator("[data-ae-nl-all]").count() == 0, "the button draws the other two charts")
+    page.click("[data-ae-nl-panel='response'] button:has-text('Show only the first 8 codes')")
+    page.wait_for_timeout(900)
+    check(page.locator("[data-ae-nl-curve]").count() == 8, "…and 'Show only the first 8 codes' takes them away again")
+    nl_section(page, "bends")
+    strip = gd_info(page, "[data-ae-nl-panel='bends'] [data-ae-nl-strip]")
+    check(len(strip["ann"]) == 8 and page.locator("[data-ae-nl-panel='bends'] [data-ae-nl-all]").count() == 1, "where it bends: eight maps, and the button for the other two")
+    nl_section(page, "local")
+    check(page.locator("[data-ae-nl-local-code] option").count() == 10, "local effects: ten codes to choose from")
+    nl_section(page, "pair")
+    check(page.locator("[data-ae-nl-pair-i] option").count() == 10 and page.locator("[data-ae-nl-pair-j] option").count() == 10, "two codes: ten codes to choose from")
+    if shots:
+        shot(page, "ae_flow_nl_ten_codes", full_page=True)
+    # one code: the first three sections work, the fourth says that there is nothing to compare
+    rid1c = train_with(page, 1)
+    check(bool(rid1c) and payload(page, rid1c)["latent_dim"] == 1, f"a network with one code was trained ({rid1c})")
+    nl_open(page, rid1c, "response")
+    check(page.locator("[data-ae-nl-curve]").count() == 1, "one code: one chart")
+    nl_section(page, "bends")
+    nl_section(page, "local")
+    check(page.locator("[data-ae-nl-local-code] option").count() == 1 and page.locator("[data-ae-nl-change-chart]").count() == 1, "one code: the local effects of that code")
+    nl_section(page, "pair")
+    check("only one code" in text(page, "[data-ae-nl-pair-none]"), "one code: 'Two codes' says that there are no two codes to look at together")
+    # back to the settings of the other parts
+    step(page, 5)
+    page.fill("[data-ae-latent] input", str(d0))
+    page.press("[data-ae-latent] input", "Enter")
+    step(page, 6)
+    open_settings(page)
+    nl_type(page, "[data-ae-epochs] input", 600)
+    nl_type(page, "[data-ae-restarts] input", 3)
+    page.wait_for_timeout(500)
+    # the choices are remembered with the project: a reload finds them
+    nl_open(page, rid1, "pair")
+    nl_ask(page, "pair", lambda: page.click("[data-ae-nl-pair-grid] button:text-is('7')"))
+    nl_ask(page, "pair", lambda: nl_type(page, "[data-ae-nl-pair-span] input", 1.5))
+    page.wait_for_timeout(2500)                                                    # (the choices are sent to the project 0.9 s after the last change)
+    got = api(page, "GET", "/api/project")
+    saved = ((got.get("summary", got).get("state") or {}).get("ui", {}).get("autoencoders") or {}).get("nl")
+    check(bool(saved) and saved["section"] == "pair" and saved["pair"]["grid"] == 7 and saved["pair"]["span"] == 1.5, f"the choices are in the project (state/ui key autoencoders.nl: {saved and {k: saved[k] for k in ('section', 'span', 'n_points')}})")
+    page.reload()
+    page.wait_for_selector("[data-fpca-panel]", timeout=60000)
+    page.wait_for_timeout(1500)
+    nl_open(page, rid1)
+    check(page.get_attribute("[data-ae-nl-section='pair']", "aria-pressed") == "true", "after a reload the tab is in the section it was left in")
+    nl_idle(page, "pair")
+    check(page.locator("[data-ae-nl-pair-grid] button.on").inner_text().strip() == "7" and page.input_value("[data-ae-nl-pair-span] input") == "1.5", "…with its grid and range")
+    nl_ask(page, "pair", lambda: page.click("[data-ae-nl-pair-grid] button:text-is('5')"))
+    nl_ask(page, "pair", lambda: nl_type(page, "[data-ae-nl-pair-span] input", 2))
+    # the other axes: excitation across, emission up (the setting of the page 'Axes of fluorescence maps')
+    set_transposed(page, True)
+    nl_open(page, rid1, "bends")
+    strip = gd_info(page, "[data-ae-nl-panel='bends'] [data-ae-nl-strip]")
+    check(any(a.startswith("xaxis") and a.endswith("Excitation (nm)") for a in strip["axes"]) and any(a.startswith("yaxis") and a.endswith("Emission (nm)") for a in strip["axes"]), f"with excitation across the maps are turned ({strip['axes'][:3]})")
+    nl_section(page, "local")
+    check(any(a.endswith("Excitation (nm)") for a in gd_info(page, "[data-ae-nl-panel='local'] [data-ae-nl-loadings]")["axes"]), "…the loadings too")
+    nl_section(page, "pair")
+    check(any(a.endswith("Excitation (nm)") for a in gd_info(page, "[data-ae-nl-panel='pair'] [data-ae-nl-gallery]")["axes"]), "…and the gallery of two codes")
+    nl_section(page, "response")
+    page.click("[data-ae-nl-pick] summary")
+    page.wait_for_selector("[data-ae-nl-picture] .js-plotly-plot", timeout=30000)
+    page.wait_for_timeout(1200)
+    box = page.locator("[data-ae-nl-picture] .nsewdrag").bounding_box()
+    page.select_option("[data-ae-nl-kind]", "total")
+    hit = None
+    for fx, fy in ((0.35, 0.2), (0.45, 0.15), (0.3, 0.3), (0.5, 0.25), (0.4, 0.4), (0.6, 0.3)):                         # high emission is at the top of the picture now
+        page.mouse.click(box["x"] + fx * box["width"], box["y"] + fy * box["height"])
+        page.wait_for_timeout(500)
+        if page.input_value("[data-ae-nl-kind]") == "point":
+            hit = (float(page.input_value("[data-ae-nl-ex] input")), float(page.input_value("[data-ae-nl-em] input")))
+            break
+    check(hit is not None and 230 <= hit[0] <= 460 and hit[1] >= 280, f"a click on the turned picture still reads excitation and emission the right way round ({hit})")
+    page.click("[data-ae-nl-pick] summary")
+    if shots:
+        nl_section(page, "bends")
+        shot(page, "ae_flow_nl_transposed", full_page=True)
+    set_transposed(page, False)
+    nl_open(page, rid1, "response")
+    tab(page, "latent")
+
+
 # ----------------------------------------------------------------------------------------------------------------------- main
 def main() -> int:
     dark, shots = "--dark" in sys.argv, "--shots" in sys.argv
@@ -843,9 +1494,14 @@ def main() -> int:
     if os.environ.get("FLUOVIZ_SHOTS"):
         browse.SHOTS = Path(os.environ["FLUOVIZ_SHOTS"])
     rt = tempfile.mkdtemp(prefix="ae-flow-runtime-")
+    env = {"FLUOVIZ_ADDONS_DEV": str(ADDON), "FLUOVIZ_RUNTIME": rt}
+    if os.environ.get("FLUOVIZ_TEST_ENV"):          # a second conda environment that already has PyTorch (a development copy): the server and its training worker run from it
+        te = os.environ["FLUOVIZ_TEST_ENV"]
+        env.update({"PATH": f"{te}/bin:{os.environ['PATH']}", "R_HOME": f"{te}/lib/R"})
     with contextlib.ExitStack() as stack:
+        stack.callback(shutil.rmtree, rt, True)                                    # (the runtime folder of this run: removed when it ends, after the server has stopped)
         try:
-            base = stack.enter_context(private_server(int(os.environ.get("AE_FLOW_PORT") or free_port()), {"FLUOVIZ_ADDONS_DEV": str(ADDON), "FLUOVIZ_RUNTIME": rt}))
+            base = stack.enter_context(private_server(int(os.environ.get("AE_FLOW_PORT") or free_port()), env))
         except RuntimeError:
             print("FAILED: the server did not start")
             return 1
@@ -854,9 +1510,35 @@ def main() -> int:
             goto(page, "/", 1.0)
             part_basics(page, shots)
             part_network(page, shots)
+            if "--only=advanced" in sys.argv:                  # while developing: just the advanced training settings (the page needs the data and step 5 first)
+                part_advanced_training(page, shots)
+                errs = errors(page)
+                check(not errs, f"no console or server errors ({errs[:3]})")
+                print("\nFAILED:" if FAILS else "\nThe advanced training settings passed.", *FAILS, sep="\n  " if FAILS else "")
+                return 1 if FAILS else 0
+            if "--only=gaps" in sys.argv:                      # while developing: just the rectangle cut out of some samples
+                part_gaps(page, shots)
+                errs = errors(page)
+                check(not errs, f"no console or server errors ({errs[:3]})")
+                print("\nFAILED:" if FAILS else "\nThe part about samples that lack a region passed.", *FAILS, sep="\n  " if FAILS else "")
+                return 1 if FAILS else 0
+            if "--only=nonlinear" in sys.argv:                 # while developing: just the tab Nonlinear effects (it needs the data and a few networks)
+                rid1 = part_recommended(page, shots)
+                part_nonlinear(page, rid1, shots)
+                rid4 = part_both(page, shots)
+                part_nonlinear_both(page, rid4, rid1, shots)
+                part_nonlinear_codes(page, rid1, shots)
+                part_layout(page, shots)
+                if shots:
+                    part_shots(page)
+                errs = errors(page)
+                check(not errs, f"no console or server errors ({errs[:3]})")
+                print("\nFAILED:" if FAILS else "\nThe tab Nonlinear effects passed.", *FAILS, sep="\n  " if FAILS else "")
+                return 1 if FAILS else 0
             rid1 = part_recommended(page, shots)
             ctx = {"rid1": rid1}
             part_results(page, rid1, shots)
+            part_nonlinear(page, rid1, shots)
             probe = api(page, "POST", f"{BASE_API}/scan", {"scan": "baseline", "rid": rid1, "save": True})
             scans = "job_id" in probe
             if scans:
@@ -867,6 +1549,10 @@ def main() -> int:
             ctx["rid2"] = part_smoothify(page, rid1, shots)
             ctx["rid3"] = part_vae(page, shots)
             ctx["rid4"] = part_both(page, shots)
+            part_nonlinear_both(page, ctx["rid4"], rid1, shots)
+            part_nonlinear_codes(page, rid1, shots)
+            part_advanced_training(page, shots)
+            part_gaps(page, shots)
             part_cancel_and_queue(page)
             part_stale(page, ctx["rid2"])
             part_layout(page, shots)

@@ -2,7 +2,8 @@
 import { whatPage, pipelinePage } from './introPages.js';
 import { functionalPage, trainingPage } from './functionalPages.js';
 import { checksPage, toolsPage } from './readPages.js';
+import { nonlinearPage } from './nonlinearPages.js';
 import { usePage, limitsPage } from './usePages.js';
 
-export const AE_PAGES = [whatPage, pipelinePage, functionalPage, trainingPage, checksPage, toolsPage, usePage, limitsPage];
+export const AE_PAGES = [whatPage, pipelinePage, functionalPage, trainingPage, checksPage, toolsPage, nonlinearPage, usePage, limitsPage];
 export const AE_IDS = AE_PAGES.map((p) => p.id);

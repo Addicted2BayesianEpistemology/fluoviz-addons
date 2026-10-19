@@ -4,7 +4,7 @@ Why: PyTorch takes seconds and about 300 MB to import and must never be loaded b
 down; and *Cancel* must really stop the computation.  So every job runs in a fresh **spawn** process (works on Windows and macOS: nothing is inherited, only top-level picklable
 functions are used, PyTorch is imported inside the job).  The parent (this module, called from a FluoViz job thread) only waits, relays progress and cancellation, and loads the result.
 
-    result = run_in_worker("fit", {"config": cfg, "data": prepared.train_data(cfg.smoothify_metric)}, progress=progress, history_path=path)
+    result = run_in_worker("fit", {"config": cfg, "data": prepared.train_data(cfg.smoothify_metric, cfg.gap_weighting)}, progress=progress, history_path=path)
 
 ``progress`` is a ``fluoviz.analysis.common.Progress`` (or any ``progress(fraction, message)``): when it raises (the person pressed Cancel) the process is terminated and nothing is
 returned or saved.  The result comes back through a temporary file that is written completely before it is announced, so there is never a half-saved result.  The per-epoch history

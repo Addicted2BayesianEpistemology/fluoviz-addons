@@ -81,6 +81,8 @@ export const AeStrip = {
     images: { type: Array, required: true }, labels: { type: Array, default: () => [] }, ex: { required: true }, em: { required: true }, mask: { default: null },
     kind: { type: String, default: 'sequential' }, zrange: { type: Array, default: null }, units: { type: String, default: '' }, cols: { type: Number, default: 7 }, rowHeight: { type: Number, default: 150 },
     highlight: { type: Number, default: -1 },
+    masks: { type: Array, default: null },                      // one mask (like `mask`) for each picture; a picture without one uses `mask`
+    nticks: { type: Number, default: 3 },                       // ticks on each axis (2 for a grid of many small pictures)
   },
   setup(props) {
     const nImg = computed(() => props.images.length);
@@ -105,9 +107,9 @@ export const AeStrip = {
         const r = Math.floor(i / k), c = i % k, n = i + 1;
         const x0 = c / k + gx, x1 = (c + 1) / k - gx, y1 = 1 - r * ph - topPad, y0 = 1 - (r + 1) * ph + (r === R - 1 ? 0 : 0.012);
         const xk = i === 0 ? 'xaxis' : `xaxis${n}`, yk = i === 0 ? 'yaxis' : `yaxis${n}`;
-        L[xk] = ax({ domain: [x0, x1], anchor: i === 0 ? 'y' : `y${n}`, range: xRange, nticks: 3, showticklabels: r === R - 1, ...(i === 0 ? {} : { matches: 'x' }),
+        L[xk] = ax({ domain: [x0, x1], anchor: i === 0 ? 'y' : `y${n}`, range: xRange, nticks: props.nticks, ...(props.nticks < 3 ? { tickangle: 0 } : {}), showticklabels: r === R - 1, ...(i === 0 ? {} : { matches: 'x' }),
           title: r === R - 1 && c === Math.floor((k - 1) / 2) && k > 1 ? { text: acrossName, font: { size: 11, color: t.text2 }, standoff: 4 } : (r === R - 1 && k === 1 ? { text: acrossName, font: { size: 11, color: t.text2 }, standoff: 4 } : undefined) });
-        L[yk] = ax({ domain: [y0, y1], anchor: i === 0 ? 'x' : `x${n}`, range: yRange, nticks: 3, showticklabels: c === 0, ...(i === 0 ? {} : { matches: 'y' }),
+        L[yk] = ax({ domain: [y0, y1], anchor: i === 0 ? 'x' : `x${n}`, range: yRange, nticks: props.nticks, showticklabels: c === 0, ...(i === 0 ? {} : { matches: 'y' }),
           title: c === 0 && r === 0 ? { text: upName, font: { size: 11, color: t.text2 }, standoff: 2 } : undefined });
         const lab = props.labels[i];
         if (lab) L.annotations.push({ xref: 'paper', yref: 'paper', x: (x0 + x1) / 2, y: y1, xanchor: 'center', yanchor: 'bottom', text: props.highlight === i ? `<b>${lab}</b>` : lab, showarrow: false, font: { size: 11, color: props.highlight === i ? t.text : t.text2, family: t.font } });
@@ -120,10 +122,11 @@ export const AeStrip = {
       const scaleDef = props.kind === 'diverging' ? divergingScale(prefs.div) : sequentialScale(prefs.seq);
       const out = [], em = Array.from(props.em), ex = Array.from(props.ex);
       const nem = em.length, tp = !!prefs.eemTranspose, hx = tp ? ex : em, hy = tp ? em : ex;
-      let mz = null;
-      if (props.mask) { mz = new Array(ex.length); for (let i = 0; i < ex.length; i++) { const r = new Float32Array(nem); for (let j = 0; j < nem; j++) r[j] = props.mask[i * nem + j] ? 1 : NaN; mz[i] = r; } if (tp) mz = transposeRows(mz); }
+      const maskRows = (m) => { const rows = new Array(ex.length); for (let i = 0; i < ex.length; i++) { const r = new Float32Array(nem); for (let j = 0; j < nem; j++) r[j] = m[i * nem + j] ? 1 : NaN; rows[i] = r; } return tp ? transposeRows(rows) : rows; };
+      const shared = props.mask ? maskRows(props.mask) : null;
       props.images.forEach((im, i) => {
         if (!im) return;
+        const mz = props.masks && props.masks[i] ? maskRows(props.masks[i]) : shared;            // (a picture may have a grey of its own: pixels without an effect)
         const n = i + 1, xa = i === 0 ? 'x' : `x${n}`, ya = i === 0 ? 'y' : `y${n}`;
         const last = i === props.images.length - 1;
         out.push({ type: 'heatmap', x: hx, y: hy, z: tp ? transposeRows(toRows(im)) : toRows(im), zmin: lo, zmax: hi, colorscale: scaleDef, xaxis: xa, yaxis: ya, zsmooth: false, hoverongaps: false, name: props.labels[i] || '',

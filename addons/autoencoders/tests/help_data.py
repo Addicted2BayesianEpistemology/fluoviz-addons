@@ -13,7 +13,7 @@ Two data sets, both of 120 samples:
 * ``bending``: one fluorophore whose emission band MOVES with a hidden condition ``t`` and whose amount ``a`` varies, plus a weak second one that follows ``a``: two hidden factors, not a sum of
   fixed shapes (the case where the bends of a network pay).
 
-Seven pictures, each from a real computation:
+Nine pictures, each from a real computation:
 
 * ``one``      the EEM of one held-out sample of ``linear``, its code and its rebuilding by a network with 3 codes (default settings);
 * ``compare``  the error on held-out samples against the number of codes for PCA (functional PCA), the network with ``silu`` and the network with ``linear`` activation (``latent_scan`` of the add-on);
@@ -21,7 +21,9 @@ Seven pictures, each from a real computation:
 * ``smoothify`` one held-out sample of a noisy data set: a cut along emission for smoothify = 0 and for a larger value, and the roughness numbers;
 * ``lcurve``   the smoothify scan of the same data (``smoothify_scan`` of the add-on);
 * ``collapse`` the KL of every code of a variational autoencoder with more codes than the data need;
-* ``loss``     the loss curves of a healthy training and of an over-fitted one.
+* ``loss``     the loss curves of a healthy training and of an over-fitted one;
+* ``shapes``   eight response curves of known shape and the words ``core.curves.describe_curve`` puts to them (no training);
+* ``nonlinear`` the 2-code network of ``bending`` looked at with the tools of the tab Nonlinear effects: the response of the pixel each code moves most with the samples around it, where each code bends, its nonlinear share.
 """
 from __future__ import annotations
 
@@ -237,10 +239,59 @@ def loss_data(prep) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------------------------------------------- pictures 8 and 9: the nonlinear effects of the codes
+SHAPES = [("A straight line", lambda t: 0.4 + 0.15 * t), ("Bends upwards", lambda t: ((t + 3.0) / 6.0) ** 2), ("Bends downwards", lambda t: 1.0 - (1.0 - (t + 3.0) / 6.0) ** 2),
+          ("Levels off", lambda t: 1.0 - np.exp(-4.5 * (t + 3.0) / 6.0)), ("An S", lambda t: np.tanh(1.1 * t)), ("A peak", lambda t: np.exp(-0.5 * ((t - 0.7) / 1.1) ** 2)),
+          ("A valley", lambda t: ((t + 0.8) / 2.2) ** 2), ("A wave", lambda t: np.sin(1.9 * t + 0.4))]
+
+
+def shapes_data() -> dict:
+    """Six response curves of known shape, each put into words by ``core.curves.describe_curve`` (the numbers the page and the guide quote): what a straight line explains of each."""
+    from fluoviz_addon_autoencoders.core.curves import describe_curve, line_fit, positions
+    t = positions(3, 41)
+    out = []
+    for name, fn in SHAPES:
+        y = np.asarray(fn(t), float)
+        y = (y - y.min()) / (y.max() - y.min())
+        d = describe_curve(t, y)
+        fit = line_fit(t, y)
+        out.append({"name": name, "y": r(y, 4), "line": r(fit["intercept"] + fit["slope"] * t, 4), "kind": d["kind"], "label": d["label"], "r2": r(d["r2_linear"], 4), "max_dev": r(d["max_deviation"], 4)})
+    return {"t": r(t, 3), "curves": out}
+
+
+def nonlinear_data(prep, result) -> dict:
+    """The 2-code network of ``bending`` seen with the tools of the tab Nonlinear effects: for each code the response of the pixel it moves most with the samples around it, its words and
+    its straight-line numbers, the map of where it bends (``NL``) and its nonlinear share; and how much the two codes interact."""
+    from fluoviz_addon_autoencoders.core.curves import line_fit
+    from fluoviz_addon_autoencoders.core.features import compile_features
+    from fluoviz_addon_autoencoders.core.nonlinear import Decoder, bend_maps, pair_effects, response_curves
+    codes = np.asarray(result.samples["codes"], float)
+    dec = Decoder(result.spec, result.arrays, prep.frame, codes)
+    feats = compile_features([{"kind": "moved"}, {"kind": "total"}], prep.frame)
+    smooth = prep.smoothed()
+    rc = response_curves(dec, feats, 3.0, 41, sample_functions=smooth, sample_coords=prep.X)
+    bm = bend_maps(dec, 3.0, 41)
+    t = rc["t"]
+    out = {"t": r(t, 3), "n": int(prep.n), "n_codes": int(dec.d), "codes": [], "pixels": int(prep.block("fluorescence").domain.m)}
+    for j in range(dec.d):
+        d = rc["description"]["f1"][j]
+        fit = line_fit(t, rc["curves"]["f1"][j])
+        top = float(np.max(np.abs(rc["curves"]["f1"][j]))) or 1.0
+        nl = bm["blocks"]["fluorescence"]["nl"][j]
+        out["codes"].append({"name": f"z{j + 1}", "sd": r(dec.sd[j], 3), "curve": r(rc["curves"]["f1"][j], 4), "line": r(fit["intercept"] + fit["slope"] * t, 4), "kind": d["kind"], "label": d["label"], "r2": r(d["r2_linear"], 4),
+                             "max_dev": r(d["max_deviation"], 4), "pixel": {k: float(v) for k, v in rc["pixel"]["f1"][j].items()}, "dots_x": r(rc["overlay"]["x"][:, j], 3), "dots_y": r(rc["overlay"]["y"]["f1"][j], 4),
+                             "total_label": rc["description"]["f2"][j]["label"], "total_r2": r(rc["description"]["f2"][j]["r2_linear"], 4), "share": r(bm["share"][j], 4), "effect_share": r(bm["effect_share"][j], 4),
+                             "nl": rows(grid_of(prep, nl)), "n_effect": int(bm["blocks"]["fluorescence"]["n_effect"][j]), "top": r(top, 4)})
+    out["codes"].sort(key=lambda c: -(c["share"] or 0.0))                                           # the code that bends most first: the picture reads left to right from the bent one to the straight one
+    pe = pair_effects(dec, 0, 1, 5, 2.0)
+    out["pair"] = {"index": r(pe["index"], 4), "span": 2.0, "grid": 5}
+    return out
+
+
 # ---------------------------------------------------------------------------------------------------------------- everything
 def figure_data(parts: list[str] | None = None) -> dict:
     """The numbers of all the pictures (``parts``: a list of keys to compute only some of them)."""
-    want = set(parts or ["one", "compare", "traversal", "smoothify", "collapse", "loss"])
+    want = set(parts or ["one", "compare", "traversal", "smoothify", "collapse", "loss", "shapes", "nonlinear"])
     from fluoviz_addon_autoencoders.core import train
     out: dict = {}
     Y_lin = eems_linear()
@@ -251,9 +302,14 @@ def figure_data(parts: list[str] | None = None) -> dict:
     if "one" in want:
         res = train.fit(config(latent_dim=3), prep_lin)
         out["one"] = one_data(prep_lin, res)
-    if "traversal" in want:
+    if "traversal" in want or "nonlinear" in want:
         res = train.fit(config(latent_dim=2), prep_bend)
-        out["traversal"] = traversal_data(prep_bend, res, t, a)
+        if "traversal" in want:
+            out["traversal"] = traversal_data(prep_bend, res, t, a)
+        if "nonlinear" in want:
+            out["nonlinear"] = nonlinear_data(prep_bend, res)
+    if "shapes" in want:
+        out["shapes"] = shapes_data()
     if "smoothify" in want:
         prep_noisy = prepare(eems_noisy(), {"fluorescence": {"basis": {"kind": "gp", "var_fraction": 0.9999}, "smoothing": {"method": "ml"}}})
         sm = smoothify_data(prep_noisy)

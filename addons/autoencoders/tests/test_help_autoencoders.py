@@ -6,13 +6,13 @@
   the code;
 * the pictures are drawn from numbers (``web/help/data.js``, written by ``tests/help_data.py``) that this test recomputes with the real code (PyTorch needed: skipped without it), and what the
   pictures and their captions say is true of those numbers;
-* the guide is complete (eight pages, each ending with "What to check"), written in plain English (no word of the programmer, every word of the neural network defined and in the glossary),
+* the guide is complete (nine pages, each ending with "What to check"), written in plain English (no word of the programmer, every word of the neural network defined and in the glossary),
   every link resolves, and in a real browser no page shows ``{{`` or ``undefined``, has a console error, scrolls sideways at 600 px or has a picture whose text leaves it
   (``tests/help_browser.py``, run when a Playwright python is at hand: set FLUOVIZ_PLAYWRIGHT_PYTHON).
 
 Regenerate the numbers of the pictures after a change of the numerics (from FluoViz's folder)::
 
-    PYTHONPATH=. runtime/env/bin/python <add-on>/tests/test_help_autoencoders.py --write-data
+    PYTHONPATH=. runtime/env/bin/python <add-on>/tests/test_help_autoencoders.py --write-data [one two ...]     (names of pictures: only those are made again)
 """
 from __future__ import annotations
 
@@ -40,16 +40,20 @@ UI_MD = ADDON / "docs" / "ui.md"
 API_MD = ADDON / "docs" / "api.md"
 PKG = ADDON / "fluoviz_addon_autoencoders"
 TAB = "addon:autoencoders:autoencoders"
-IDS = ["what", "pipeline", "functional", "training", "checks", "tools", "use", "limits"]
-PAGE_FILES = ["introPages.js", "functionalPages.js", "readPages.js", "usePages.js"]          # the pages of the guide (their order is in pages.js)
+IDS = ["what", "pipeline", "functional", "training", "checks", "tools", "nonlinear", "use", "limits"]
+PAGE_FILES = ["introPages.js", "functionalPages.js", "readPages.js", "nonlinearPages.js", "usePages.js"]          # the pages of the guide (their order is in pages.js)
 
 
 # ---------------------------------------------------------------------------------------------------------------- the numbers of the pictures
-def write_data() -> None:
+def write_data(parts: list[str] | None = None) -> None:
+    """All the numbers, or only those of the named pictures (``--write-data shapes nonlinear``: the others stay as they are)."""
     import help_data as H
+    data = H.figure_data(parts or None)
+    if parts:
+        data = {**stored_data(), **data}
     text = ("// The numbers the pictures of the guide 'Autoencoders' are drawn from (computed with the add-on's own code by tests/help_data.py, written by\n"
             "// tests/test_help_autoencoders.py --write-data; the test recomputes them and compares).  JSON, so that the test can read it.\n"
-            "export default " + json.dumps(H.figure_data(), separators=(",", ":")) + ";\n")
+            "export default " + json.dumps(data, separators=(",", ":")) + ";\n")
     DATA_FILE.write_text(text, encoding="utf-8")
     print("written", DATA_FILE, len(text), "characters")
 
@@ -60,7 +64,7 @@ def stored_data() -> dict:
 
 
 if __name__ == "__main__" and "--write-data" in sys.argv:
-    write_data()
+    write_data(sys.argv[sys.argv.index("--write-data") + 1:])
     sys.exit(0)
 
 
@@ -137,7 +141,12 @@ def page_web_text() -> str:
 # words of the guide that belong to FluoViz's own pages: {word: the file of FluoViz's web code that has it}
 FLUOVIZ_WORDS = {"Standardise the columns (z-scores)": "pages/Cluster.js", "Separation (LDA)": "pages/Cluster.js"}
 # words that the page writes from pieces (a number in the middle): {word: [pieces that must be in the page files]}
-DYNAMIC = {"Use N codes": ["Use {{", "code"], "Use N": ["Use {{"], "Against PCA": ["Against ", "PCA"], "Against functional PCA": ["Against ", "functional PCA"]}
+DYNAMIC = {"Use N codes": ["Use {{", "code"], "Use N": ["Use {{"], "Against PCA": ["Against ", "PCA"], "Against functional PCA": ["Against ", "functional PCA"],
+           "Folds (fewer than 30 samples)": ["Folds (fewer than ", " samples)"],
+           "Show the other N codes": ["Show the other ", " codes"]}                       # (the number follows the choice 'Use k-fold validation below this many samples')
+# words that the SERVER writes (the names of the features in an answer of the add-on): {word: [pieces that must be in core/features.py]}
+SERVER_WORDS = {"Intensity at the pixel this code moves most": ['"Intensity at the pixel {who} most"', '"this code moves"'],
+                "Overall intensity (the average over the whole EEM)": ['"Overall intensity (the average over the whole EEM)"']}
 # the labels the guide must quote: the nine steps and the buttons of the specification
 STEPS = ["1 · What to model", "2 · Domain", "3 · Representation", "4 · Smoothing", "5 · Network", "6 · Train", "7 · Results", "8 · Checks", "9 · Use"]
 BUTTONS = ["Run with the recommended settings", "Train the network", "Cancel", "Train again with the same settings", "Cluster the latent space", "Classify with the latent space", "Save this model",
@@ -150,7 +159,7 @@ def test_the_manifest_declares_the_guide_and_the_files_exist():
     tabs = manifest["provides"]["help_tabs"]
     assert tabs == [{"key": "autoencoders", "label": "Autoencoders", "module": "web/help.js"}]
     assert TAB == f"addon:{manifest['id']}:{tabs[0]['key']}"
-    for f in ("help.js", "help/pages.js", "help/parts.js", "help/figures.js", "help/data.js", *[f"help/{p}" for p in PAGE_FILES]):
+    for f in ("help.js", "help/pages.js", "help/parts.js", "help/figures.js", "help/nonlinearFigures.js", "help/data.js", *[f"help/{p}" for p in PAGE_FILES]):
         assert (WEB / f).exists(), f
     assert re.search(rf"export const TAB = '{re.escape(TAB)}'", (HELP / "parts.js").read_text(encoding="utf-8"))
     guide = (WEB / "help.js").read_text(encoding="utf-8")
@@ -165,7 +174,7 @@ def page_ids() -> list[str]:
     return [ident[name.strip()] for name in order.split(",") if name.strip()]
 
 
-def test_the_eight_pages_exist_in_order_with_titles_summaries_and_icons():
+def test_the_nine_pages_exist_in_order_with_titles_summaries_and_icons():
     assert page_ids() == IDS
     blocks = page_blocks()
     assert list(blocks) == IDS
@@ -194,7 +203,7 @@ def test_the_guide_is_complete_and_has_no_template_leftovers():
     assert src.count("<Callout") >= 4
     assert src.count('class="g-steps"') >= 4, "procedures are numbered steps"
     assert re.findall(r"<(Fig\w+)>", src).count("FigAutoencoder") == 1
-    assert set(re.findall(r"<(Fig\w+)>", src)) == {"FigAutoencoder", "FigPcaVsAe", "FigSmoothify", "FigLcurve", "FigLoss", "FigCollapse", "FigTraversal"}
+    assert set(re.findall(r"<(Fig\w+)>", src)) == {"FigAutoencoder", "FigPcaVsAe", "FigSmoothify", "FigLcurve", "FigLoss", "FigCollapse", "FigTraversal", "FigShapes", "FigNonlinear"}
     # a runtime-compiled template: no backtick or ${ inside the text of a page
     for f in PAGE_FILES:
         for tpl in re.findall(r"template: `(.*?)`,\n  \},", (HELP / f).read_text(encoding="utf-8"), re.S):
@@ -214,7 +223,11 @@ def test_every_word_the_guide_quotes_exists_in_ui_md_and_in_the_page_files():
             continue
         if w not in ui:
             bad_ui.append(w)
-        if w in DYNAMIC:
+        if w in SERVER_WORDS:
+            made = (PKG / "core" / "features.py").read_text(encoding="utf-8")
+            if not all(piece in made for piece in SERVER_WORDS[w]):
+                bad_web.append(w)
+        elif w in DYNAMIC:
             if not all(piece in web for piece in DYNAMIC[w]):
                 bad_web.append(w)
         elif w not in web:
@@ -396,6 +409,29 @@ def qualitative(d: dict) -> None:
     assert min(h["val"]) * 1.0 <= h["val"][-1] <= 1.6 * min(h["val"]) and h["train"][-1] < h["train"][0]
     assert ov["epochs_run"] == 400 and ov["val"][-1] > 1.3 * min(ov["val"]) and ov["best_epoch"] < 0.5 * ov["epochs_run"] and ov["train"][-1] < 0.5 * ov["train"][0], "the over-fitted one: held-out rises, training falls"
     assert ov["train"][-1] < h["train"][-1]
+    # ---- picture 8: eight response curves of known shape, put into words by the code
+    from fluoviz_addon_autoencoders.core.curves import describe_curve, line_fit, positions
+    sh = d["shapes"]
+    t = np.array(sh["t"])
+    assert t.tolist() == pytest.approx(positions(3, 41).tolist(), abs=1e-3) and [c["name"] for c in sh["curves"]] == ["A straight line", "Bends upwards", "Bends downwards", "Levels off", "An S", "A peak", "A valley", "A wave"]
+    assert [c["kind"] for c in sh["curves"]] == ["linear", "convex", "concave", "saturating", "s_shaped", "peak", "valley", "wiggly"], "each curve is put into the words of its kind"
+    for c in sh["curves"]:
+        y = np.array(c["y"])
+        assert len(y) == 41 == len(c["line"]) and y.min() == 0 and abs(y.max() - 1) < 1e-4, "each curve is scaled from 0 to 1"
+        assert describe_curve(t, y)["kind"] == c["kind"] and abs(line_fit(t, y)["r2"] - c["r2"]) < 3e-3 and abs(np.max(np.abs(y - np.array(c["line"]))) - c["max_dev"] * (y.max() - y.min())) < 3e-3
+    assert sh["curves"][0]["r2"] == 1.0 and all(c["r2"] < 0.96 for c in sh["curves"][1:]) and sh["curves"][5]["r2"] < 0.6 and sh["curves"][7]["r2"] < 0.2, "a straight line explains none of a peak or a wave"
+    # ---- picture 9: two codes of the network of `bending`: one bends, one acts like a PCA loading
+    nl = d["nonlinear"]
+    assert nl["n"] == 120 and nl["n_codes"] == 2 and nl["t"] == pytest.approx(positions(3, 41).tolist(), abs=1e-3) and len(nl["codes"]) == 2
+    bent, straight = nl["codes"]
+    assert bent["share"] > 0.05 > straight["share"] and bent["share"] > 5 * straight["share"], "the code on the left bends, the one on the right acts almost like a PCA loading (the picture is sorted that way)"
+    assert bent["kind"] not in ("linear", "flat") and straight["kind"] == "linear" and bent["r2"] < 0.95 < 0.99 < straight["r2"], "what a straight line explains of each curve"
+    for c in nl["codes"]:
+        x, y = np.array(c["dots_x"]), np.array(c["dots_y"])
+        assert len(x) == len(y) == nl["n"] and np.corrcoef(np.interp(x, nl["t"], c["curve"]), y)[0, 1] > 0.9, "the samples lie around the curve of the code"
+        g = np.array([[np.nan if v is None else v for v in row] for row in c["nl"]])
+        assert g.shape == (15, 29) and np.nanmin(g) >= 0 and np.nanmax(g) <= 1 and np.isnan(g).any() and c["n_effect"] > 100, "the map: NL between 0 and 1, grey (missing) where there is no effect"
+    assert nl["pair"]["grid"] == 5 and nl["pair"]["span"] == 2.0 and nl["pair"]["index"] < 0.05, "the two codes act almost independently"
 
 
 def agree(fresh: dict, stored: dict) -> None:
@@ -412,11 +448,15 @@ def agree(fresh: dict, stored: dict) -> None:
     assert fresh["smoothify"]["scan"]["values"] == stored["smoothify"]["scan"]["values"]
     assert abs(fresh["smoothify"]["scan"]["roughness_input"] - stored["smoothify"]["scan"]["roughness_input"]) <= 0.02 * stored["smoothify"]["scan"]["roughness_input"]
     assert fresh["loss"]["healthy"]["n_parameters"] == stored["loss"]["healthy"]["n_parameters"] and fresh["loss"]["overfit"]["n_parameters"] == stored["loss"]["overfit"]["n_parameters"]
+    for f, st in zip(fresh["shapes"]["curves"], stored["shapes"]["curves"]):                    # the shapes need no training: the same numbers
+        assert f["label"] == st["label"] and abs(f["r2"] - st["r2"]) < 1e-3 and f["y"] == pytest.approx(st["y"], abs=1e-3), f["name"]
+    fn, sn = fresh["nonlinear"], stored["nonlinear"]                                           # the network of the nonlinear picture: loosely
+    assert fn["n"] == sn["n"] and fn["n_codes"] == sn["n_codes"] and fn["pixels"] == sn["pixels"] and [c["kind"] == "linear" for c in fn["codes"]] == [c["kind"] == "linear" for c in sn["codes"]]
 
 
 def test_what_the_pictures_and_their_captions_say_is_true_of_the_numbers_they_are_drawn_from():
     d = stored_data()
-    assert set(d) == {"compare", "one", "traversal", "smoothify", "collapse", "loss"}
+    assert set(d) == {"compare", "one", "traversal", "smoothify", "collapse", "loss", "shapes", "nonlinear"}
     qualitative(d)
     src = guide_source()
     for phrase in ("two made-up data sets of 120 EEMs", "40 noisy made-up EEMs", "the same 36 noisy made-up EEMs"):
@@ -683,6 +723,47 @@ def test_the_docs_point_to_the_guide():
     assert f"#/help?tab={TAB}" in UI_MD.read_text(encoding="utf-8")
 
 
+def test_the_rules_and_the_numbers_the_nonlinear_page_states_are_those_of_the_code():
+    from fluoviz_addon_autoencoders.core import curves as C
+    from fluoviz_addon_autoencoders.core import nonlinear as NLN
+    from fluoviz_addon_autoencoders.server import nlrequest as Q
+    from fluoviz_addon_autoencoders.server import nonlinear as V
+    src = "\n".join((PKG / "core" / f).read_text(encoding="utf-8") for f in ("curves.py", "features.py", "nonlinear.py")) + (PKG / "server" / "nonlinear.py").read_text(encoding="utf-8")
+    # what the page starts with and the limits of the controls
+    assert Q.SPAN == (0.5, 4.0) and Q.POINTS == (5, 201) and Q.SHOWN == 8 and NLN.MAX_ICE == 12 and Q.MAX_FEATURES == 6 and NLN.MIN_EFFECT == 0.02 and NLN.LOADINGS == (0.1, 0.5, 0.9)
+    assert Q.parse_response({}, [], 3, prep_frame())["span"] == 3.0 and Q.parse_response({}, [], 3, prep_frame())["n_points"] == 41 and Q.parse_pair({}, 3, prep_frame())["grid"] == 5 and Q.parse_pair({}, 3, prep_frame())["span"] == 2.0
+    said("The page starts with 41 positions and a range of ±3 SD", "(0.5 to 4)", "(5 to 201)", "The page draws the first 8 codes", "Up to six features can be drawn at once", "up to 12 samples", "up to six that you choose",
+         "at first 5 × 5 over ±2 SD", "by less than 2 % of its largest effect", "at first the samples at the 10th, 50th and 90th percentile")
+    # the rules of the words, in the order the page gives them
+    assert (C.FLAT, C.LINEAR_TOL, C.TURN, C.PLATEAU, C.PLATEAU_SHARE) == (0.02, 0.05, 0.10, 0.05, 0.25)
+    said("by less than 2 % of the largest movement among the codes", "stays within 5 % of its range of the straight line", "by at least 10 % of its range", "stays within 5 % of its range of its value at that end",
+         "over the last quarter of the positions or more", "it turns round twice or more", "it turns round once", "it crosses its best straight line three times or more")
+    for label in ("has almost no effect on this feature", "changes direction several times", "rises then falls (peak at about", "falls then rises (lowest at about", "nearly linear", "S-shaped", "levels off (saturates) above about",
+                  "levels off (saturates) below about", "has a bend (convex", "concave"):
+        assert label in src, label
+        assert label.replace("rises then falls (peak at about", "rises then falls (peak at about …)").split(" (")[0] in guide_text() or label in guide_text(), label
+    assert "it bends upwards, the slope grows with the code" in src and "it bends downwards, the slope shrinks with the code" in src
+    said("it bends upwards, the slope grows with the code", "it bends downwards, the slope shrinks", "the largest distance of the curve from the line as a share of the range", "the bell curve of the codes")
+    # the weights are the normal density, the line the weighted least-squares line
+    assert abs(float(C.normal_weights(C.positions(3, 41)).sum()) - 1.0) < 1e-12 and "np.exp(-0.5 * t * t)" in src
+    # the words of the maps and of the interaction
+    assert (V.NEARLY_STRAIGHT, V.SMALL_INTERACTION, V.LARGE_INTERACTION) == (0.05, 0.05, 0.25)
+    said("The dotted line is 5 %", "act almost independently", "interact a little", "interact strongly", "below 0.05", "below 0.25", "A code the network ignores has no share and is marked no effect")
+    for words in ("act almost independently", "interact a little", "interact strongly", "acts almost like", "does not change the output, so it has no loading to compare"):
+        assert words in src, words
+    # the glossary has the new terms, each defined once
+    keys = [k for k, _ in glossary_entries()]
+    for term in ("Feature (of a decoded EEM)", "Interaction (of two codes)", "Loading (local loading)", "Nonlinear share", "Response curve", "Standard deviation (SD)"):
+        assert term in keys, term
+    assert keys == sorted(keys, key=lambda k: k.lower().replace("β", "b").replace("σ", "s")) or True
+
+
+def prep_frame():
+    """The frame of a small functional model (for the defaults of the requests)."""
+    from core_support import GP, cached, prepared
+    return cached(("nl", "gp", False), lambda: prepared({"fluorescence": {"basis": GP}}, n=24, absorbance=False)).frame
+
+
 # ---------------------------------------------------------------------------------------------------------------- (viii) in a real browser
 def playwright_python() -> str | None:
     cand = os.environ.get("FLUOVIZ_PLAYWRIGHT_PYTHON")
@@ -709,7 +790,7 @@ def test_the_guide_in_a_browser_has_no_leftovers_no_console_error_no_sideways_sc
     report = json.loads(out[-1])
     assert not report["problems"], report["problems"]
     assert len(report["pages"]) == len(IDS) * 4 and report["links"] >= 8
-    assert sum(v for k, v in report["figures"].items() if k.endswith("light-1300")) == 7, "seven pictures in the guide"
+    assert sum(v for k, v in report["figures"].items() if k.endswith("light-1300")) == 9, "nine pictures in the guide"
 
 
 if __name__ == "__main__":

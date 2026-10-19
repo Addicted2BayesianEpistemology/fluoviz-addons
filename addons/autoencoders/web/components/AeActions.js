@@ -162,6 +162,7 @@ function prepareResult(r) {
   o.codeMean = vec(p.code_mean); o.codeSd = vec(p.code_sd);
   o.err = vec(rec.error); o.r2 = vec(rec.r2); o.rmse = vec(rec.rmse); o.typ = rec.typicality ? vec(rec.typicality) : null;
   o.held = p.split && p.split.flag ? vec(p.split.flag) : null;
+  o.missing = rec.missing ? vec(rec.missing) : null;                   // the share of the domain each sample lacked (a region cut out of it); null = none did
   o.flag = rec.flag || [];
   o.scansSaved = p.scans || {};
   return o;
@@ -178,6 +179,7 @@ export async function loadResult(rid = fp.rid, force = false, { keep = false } =
     if (my !== resSeq) return null;
     const B = fp.ae;
     if (!keep || B.resRid !== rid) { B.extra = {}; B.sample = null; }
+    else if ((r.result.stale || []).join('|') !== (fp.stale || []).join('|') && B.extra.samples) B.extra.samples = {};         // the data changed (or are as they were): the single-sample views are asked for again
     B.res = markRaw(prepareResult(r)); B.resRid = rid; B.resError = '';
     fp.stale = r.result.stale || []; fp.params = r.result.params;
     return B.res;

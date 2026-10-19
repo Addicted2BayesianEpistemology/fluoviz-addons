@@ -131,7 +131,7 @@ def run_scan(p, spec: ScanSpec, progress, history_path) -> dict:
     prepared = prep.get_prepared(p, req, progress.sub(0.0, 0.1))
     cfg = req.cfg
     cfg.check_samples(prepared.n)
-    td = prepared.train_data(cfg.smoothify_metric)
+    td = prepared.train_data(cfg.smoothify_metric, cfg.gap_weighting)
     if spec.kind == "baseline":
         out = baseline_scan(td, cfg, spec.options.get("dims"))
     else:

@@ -170,3 +170,35 @@ if __name__ == "__main__":
     env["PYTHONPATH"] = os.pathsep.join(x for x in sys.path if x)
     out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, env=env, timeout=600)
     assert "NO_TORCH_IN_SERVER" in out.stdout, out.stdout[-1500:] + out.stderr[-3000:]
+
+
+def test_the_advanced_training_settings_reach_the_training_the_verdict_and_the_methods(world):
+    """Every default is the old training; the settings that change when training stops, the learning rate and the weights that are kept are carried out and said in words."""
+    out = fit(world, epochs=12, patience=1, stop_rule="never", min_delta=0.5, lr_schedule="constant", max_minutes=5, restore_best=False)
+    rid = out["rid"]
+    body = world.get(f"{B}/{rid}").json()
+    tr = body["payload"]["training"]
+    params = body["result"]["params"]
+    assert params["stop_rule"] == "never" and params["min_delta"] == 0.5 and params["lr_schedule"] == "constant" and params["max_minutes"] == 5 and params["restore_best"] is False
+    assert tr["epochs_run"] == 12 and tr["stopped"] == "max" and tr["best_epoch"] == 11
+    assert "Early stopping was off: all 12 epochs were trained; the weights of the last epoch were kept" in tr["stopping"]
+    assert all(abs(x - FAST_LR) < 1e-12 for x in tr["history"]["lr"])
+    assert tr["restarts"][0]["epochs_run"] == 12 and tr["restarts"][0]["stopped"] == "max"
+    text = world.get(f"{B}/{rid}/methods").json()["text"]
+    assert "kept constant" in text and "12 epochs without early stopping" in text and "at most 5 minutes per network" in text and "The weights of the last epoch were kept." in text
+    # the replayed request gives the same settings
+    again = fit(world, **{k: v for k, v in params.items() if k not in ("input", "title", "size", "hidden")})
+    assert world.get(f"{B}/{again['rid']}").json()["result"]["params"]["stop_rule"] == "never"
+
+
+FAST_LR = 0.001
+
+
+def test_the_settings_are_refused_in_plain_words_and_change_the_time_estimate(world):
+    for bad, words in (({"stop_rule": "whenever"}, "stopping rule"), ({"min_delta": 3}, "smallest improvement"), ({"final_epochs": "some"}, "final networks"), ({"lr_schedule": "random"}, "learning-rate schedule")):
+        r = world.post(f"{B}/fit", json={**FAST, "input": INP, **bad})
+        assert r.status_code == 400 and words in r.text, (bad, r.text)
+    slow = A.done(world, f"{B}/check", {"latent_dim": 3, "input": INP, "stop_rule": "never", "epochs": 600})
+    usual = A.done(world, f"{B}/check", {"latent_dim": 3, "input": INP, "epochs": 600})
+    capped = A.done(world, f"{B}/check", {"latent_dim": 3, "input": INP, "stop_rule": "never", "epochs": 600, "max_minutes": 0.05})
+    assert slow["estimate"]["seconds"] > usual["estimate"]["seconds"] > 0 and 0 < capped["estimate"]["seconds"] <= slow["estimate"]["seconds"]        # (the cap itself is tested on a big problem in test_core_settings)

@@ -155,7 +155,7 @@ export const pipelinePage = {
       </ul>
 
       <h2>6 · Train</h2>
-      <p>The card <Ui>What will be done</Ui> sums up your choices in words and gives the time estimate. The fold <Ui>Training settings</Ui> has <Ui>Maximum number of epochs</Ui> (600), <Ui>Patience (epochs without improvement)</Ui> (60), <Ui>Share of samples held out</Ui> (0.2), <Ui>Folds (fewer than 30 samples)</Ui> (5), <Ui>Learning rate</Ui> (0.001), <Ui>Batch size</Ui> (empty: automatic, a sixth of the training samples, but at least 8 and at most 32), <Ui>Number of random starts</Ui> (3), <Ui>Random seed</Ui> (0) and <Ui>Title of the result</Ui>. <Ui>Train the network</Ui> starts the training in a separate process, so FluoViz stays responsive; <Ui>Cancel</Ui> stops it and <b>nothing is saved</b> (the page says <Ui>Cancelled: nothing was saved.</Ui>). The chart <Ui>Training so far</Ui> shows the loss on the training samples and on the held-out samples, twice a second; the line under it says where it is, for example "Start 2 of 3, epoch 34".</p>
+      <p>The card <Ui>What will be done</Ui> sums up your choices in words and gives the time estimate. The fold <Ui>Training settings</Ui> has <Ui>Maximum number of epochs</Ui> (600), <Ui>Patience (epochs without improvement)</Ui> (60), <Ui>Share of samples held out</Ui> (0.2), <Ui>Folds (fewer than 30 samples)</Ui> (5), <Ui>Learning rate</Ui> (0.001), <Ui>Batch size</Ui> (empty: automatic, a sixth of the training samples, but at least 8 and at most 32), <Ui>Number of random starts</Ui> (3), <Ui>Random seed</Ui> (0) and <Ui>Title of the result</Ui>. Inside it the fold <Ui>Advanced training settings</Ui> has the controls of <b>when training stops</b> and of how the learning rate moves; the defaults are the ones named above, and page 6 says when to change them. <Ui>Train the network</Ui> starts the training in a separate process, so FluoViz stays responsive; <Ui>Cancel</Ui> stops it and <b>nothing is saved</b> (the page says <Ui>Cancelled: nothing was saved.</Ui>). The chart <Ui>Training so far</Ui> shows the loss on the training samples and on the held-out samples, twice a second; the line under it says where it is, for example "Start 2 of 3, epoch 34".</p>
       <ul class="g-list">
         <li><b>Decide.</b> Almost nothing: the defaults are chosen for tens to a few hundred samples. Page 4 explains each.</li>
         <li><b>Look at.</b> The two lines of the chart: they should both fall, and the held-out one should flatten.</li>
@@ -163,7 +163,7 @@ export const pipelinePage = {
       </ul>
 
       <h2>7 · Results</h2>
-      <p>Four cards and five tabs: <Ui>Latent space</Ui>, <Ui>Traversals</Ui>, <Ui>Samples</Ui>, <Ui>Interpolation</Ui> and <Ui>Generate</Ui> (variational autoencoders only). The result is saved with a number, like the other results (<i>autoencoder-1</i>), and is flagged outdated when the data change: the notice "Outdated: … changed since this autoencoder was computed." comes with the button <Ui>Train again with the same settings</Ui>. <b>The network is never trained again silently.</b> Page 6 describes the tabs.</p>
+      <p>Four cards and six tabs: <Ui>Latent space</Ui>, <Ui>Traversals</Ui>, <Ui>Nonlinear effects</Ui>, <Ui>Samples</Ui>, <Ui>Interpolation</Ui> and <Ui>Generate</Ui> (variational autoencoders only). The result is saved with a number, like the other results (<i>autoencoder-1</i>), and is flagged outdated when the data change: the notice "Outdated: … changed since this autoencoder was computed." comes with the button <Ui>Train again with the same settings</Ui>. <b>The network is never trained again silently.</b> Pages 6 and 7 describe the tabs.</p>
       <ul class="g-list">
         <li><b>Decide.</b> Which samples to look at; which codes to use.</li>
         <li><b>Usual mistakes.</b> Reading the codes before the checks; using the codes of an outdated result.</li>
@@ -177,7 +177,7 @@ export const pipelinePage = {
       </ul>
 
       <h2>9 · Use</h2>
-      <p>The variables the network made (<Ui>Variables made by this network</Ui>), the buttons <Ui>Cluster the latent space</Ui>, <Ui>Classify with the latent space</Ui> and <Ui>Plot the codes</Ui> under <Ui>Use the codes</Ui>, <Ui>Save this model</Ui> and <Ui>Apply a saved model</Ui> under <Ui>Keep the network</Ui>, the <Ui>Downloads</Ui> and the <Ui>Methods paragraph</Ui> with <Ui>Copy</Ui>. Page 7 describes them.</p>
+      <p>The variables the network made (<Ui>Variables made by this network</Ui>), the buttons <Ui>Cluster the latent space</Ui>, <Ui>Classify with the latent space</Ui> and <Ui>Plot the codes</Ui> under <Ui>Use the codes</Ui>, <Ui>Save this model</Ui> and <Ui>Apply a saved model</Ui> under <Ui>Keep the network</Ui>, the <Ui>Downloads</Ui> and the <Ui>Methods paragraph</Ui> with <Ui>Copy</Ui>. Page 8 describes them.</p>
 
       <h2>What to check</h2>
       <ul class="g-list">

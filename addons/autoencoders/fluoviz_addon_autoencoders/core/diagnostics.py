@@ -96,18 +96,18 @@ def pca_curve(td, split: dict, kmax: int) -> dict:
         for vi in split["folds"]:
             vi = np.asarray(vi)
             tr = np.setdiff1d(np.arange(n), vi)
-            m = lin.fit_pca(td.X[tr], None if M is None else M[tr], td.omega, kmax)
+            m = lin.fit_pca(td.X[tr], None if M is None else M[tr], td.omega, kmax, sample_w=td.sw_of(tr))
             e = lin.pca_errors(m, td.X[vi], None if M is None else M[vi], td.omega, td.blocks, ks)
             for k in ks:
                 errs[k][vi] = e[k]
-        m = lin.fit_pca(td.X, M, td.omega, kmax)
+        m = lin.fit_pca(td.X, M, td.omega, kmax, sample_w=td.sw_of())
         et = lin.pca_errors(m, td.X, M, td.omega, td.blocks, ks)
         val_idx = np.arange(n)
         err_tr = {k: et[k] for k in ks}
         tr_idx = np.arange(n)
     else:
         tr_idx, val_idx = np.asarray(split["train"]), np.asarray(split["val"])
-        m = lin.fit_pca(td.X[tr_idx], None if M is None else M[tr_idx], td.omega, kmax)
+        m = lin.fit_pca(td.X[tr_idx], None if M is None else M[tr_idx], td.omega, kmax, sample_w=td.sw_of(tr_idx))
         e = lin.pca_errors(m, td.X, M, td.omega, td.blocks, ks)
         errs = {k: e[k] for k in ks}
         err_tr = errs
@@ -447,6 +447,56 @@ def quality_verdict(evr_val: float, n_val: int, k: int) -> str:
     return s
 
 
+STOP_HINT = "Step 6 · Training settings · Advanced training settings has the controls."
+
+
+def stop_reason(result) -> str:
+    """Why the training of the kept network ended: ``"early"`` (the patience was used up), ``"time"`` (the time limit) or ``"max"`` (all the epochs)."""
+    runs = (getattr(result, "restarts", None) or {}).get("runs") or []
+    kept = (getattr(result, "restarts", None) or {}).get("kept", 0)
+    if runs and 0 <= kept < len(runs) and runs[kept].get("stopped") in ("early", "time", "max"):
+        return runs[kept]["stopped"]
+    return "early" if result.epochs_run < result.config["epochs"] else "max"
+
+
+def stopping_words(result, cfg: dict) -> str:
+    """One or two sentences on how and why the training ended, with the advanced setting to change when it ended too early (every sentence the training verdict used to have is kept for
+    the default settings)."""
+    rule = cfg.get("stop_rule", "validation")
+    why = stop_reason(result)
+    last = result.epochs_run
+    restored = cfg.get("restore_best", True)
+    kept = f"the weights of epoch {result.best_epoch + 1} were restored" if restored else "the weights of the last epoch were kept"
+    if result.best_epoch < 0:
+        st = ("The network could not improve on its PCA starting point on held-out samples: the straight-line (linear) part is the answer for these data, and the nonlinear part of the "
+              "network added nothing that holds up.")
+        if why == "early":
+            st += f" Training ended after {cfg['patience']} epochs without an improvement; if the nonlinear part may need longer to catch up with the PCA, raise the patience or the least number of epochs. {STOP_HINT}"
+        elif why == "time":
+            st += f" Training was stopped at epoch {last} by the time limit of {float(cfg.get('max_minutes') or 0):g} minutes for one network."
+        elif rule == "never":
+            st += f" Early stopping was off: all {cfg['epochs']} epochs were trained."
+        return st
+    if result.split["mode"] == "kfold":
+        st = f"With k-fold validation the number of epochs ({last}) was taken from the folds."
+        if cfg.get("final_epochs", "auto") == "auto":
+            st += f" If that is too few for these data, choose the number of epochs of the final networks. {STOP_HINT}"
+        else:
+            st = f"With k-fold validation the final networks were trained for {last} epochs, as chosen."
+        return st
+    if why == "time":
+        return f"Training was stopped at epoch {last} because the time limit of {float(cfg.get('max_minutes') or 0):g} minutes for one network was reached; {kept}."
+    if why == "early":
+        loss = "validation" if rule == "validation" else "training"
+        st = f"Training stopped at epoch {last} because the {loss} loss had not improved for {cfg['patience']} epochs; {kept}."
+        return st + f" To let it train longer, raise the patience or the least number of epochs, or lower the smallest improvement that counts. {STOP_HINT}"
+    if rule == "never":
+        return f"Early stopping was off: all {cfg['epochs']} epochs were trained; {kept}."
+    if result.best_epoch >= 0.9 * cfg["epochs"]:
+        return f"Training used all {cfg['epochs']} epochs and the best weights were still near the end (epoch {result.best_epoch + 1}): more epochs may help. Raise the maximum number of epochs."
+    return f"Training used all {cfg['epochs']} epochs; the best weights are from epoch {result.best_epoch + 1}."
+
+
 def training_verdict(result) -> dict:
     """Plain-English verdict on a training run: overfitting, the epoch of the best weights, and the agreement of the random starts.
     Returns ``{"overfit": "none" | "mild" | "clear", "gap", "words", "overfit_words", "stopping_words", "restarts_words", "quality_words"}``."""
@@ -465,17 +515,7 @@ def training_verdict(result) -> dict:
         level = "none"
         ow = f"No sign of overfitting: training samples {pct(v['evr_train'])}, held-out samples {pct(v['evr'])}."
     cfg = result.config
-    if result.best_epoch < 0:
-        st = ("The network could not improve on its PCA starting point on held-out samples: the straight-line (linear) part is the answer for these data, and the nonlinear part of the "
-              "network added nothing that holds up.")
-    elif result.split["mode"] == "kfold":
-        st = f"With k-fold validation the number of epochs ({result.epochs_run}) was taken from the folds."
-    elif result.epochs_run < cfg["epochs"]:
-        st = (f"Training stopped at epoch {result.epochs_run} because the validation loss had not improved for {cfg['patience']} epochs; the weights of epoch {result.best_epoch + 1} were restored.")
-    elif result.best_epoch >= 0.9 * cfg["epochs"]:
-        st = f"Training used all {cfg['epochs']} epochs and the best weights were still near the end (epoch {result.best_epoch + 1}): more epochs may help."
-    else:
-        st = f"Training used all {cfg['epochs']} epochs; the best weights are from epoch {result.best_epoch + 1}."
+    st = stopping_words(result, cfg)
     vals = [r.get("evr_val", r.get("evr_train")) for r in rs["runs"]]
     if rs["n"] > 1:
         spread = max(vals) - min(vals)
@@ -529,7 +569,7 @@ def latent_scan(config, data, dims=None, families=None, n_restarts: int = 1, pro
     the variation NOT rebuilt on held-out samples.  Returns ``{"scan": "latent", "dims", "families": {"ae": {"val", "val_se", "train"}}, "baseline": {"name", "val", "val_se", "train"},
     "recommended": {"latent_dim", "reason"}, "words"}``."""
     cfg = config if isinstance(config, Config) else Config.from_dict(config)
-    td = data.train_data(cfg.smoothify_metric) if hasattr(data, "train_data") else data
+    td = data.train_data(cfg.smoothify_metric, cfg.gap_weighting) if hasattr(data, "train_data") else data
     dmax = int(min(12, td.P - 1, max(2, td.n // 3)))
     dims = list(range(1, dmax + 1)) if dims is None else [int(x) for x in dims]
     if any(d < 1 or d >= td.P for d in dims):
@@ -574,7 +614,7 @@ def smoothify_scan(config, data, values=None, n_restarts: int = 1, progress=None
     samples, the roughness that of their reconstructions (:func:`roughness`; the mean over the variables).  The suggested ``s`` is the largest one whose held-out error is within one
     standard error (or 2 % relative) of the error without smoothing.  Returns ``{"scan": "smoothify", "values", "error", "error_se", "roughness", "roughness_input", "suggested", "words"}``."""
     cfg = config if isinstance(config, Config) else Config.from_dict(config)
-    td = data.train_data(cfg.smoothify_metric) if hasattr(data, "train_data") else data
+    td = data.train_data(cfg.smoothify_metric, cfg.gap_weighting) if hasattr(data, "train_data") else data
     cfg.check_samples(td.n)
     vals = [0.0] + list(np.geomspace(1e-4, 10.0, 11)) if values is None else [float(v) for v in values]
     if any(v < 0 for v in vals):
@@ -610,7 +650,7 @@ def stability_scan(config, data, n_runs: int = 5, bootstrap: bool = False, progr
     """Train ``n_runs`` networks from different random starts (with ``bootstrap``: on bootstrap samples of the training data) and compare the codes of ALL samples (canonical correlations,
     Procrustes) and the reconstructions.  Returns ``{"scan": "stability", "n_runs", "alignment": {"mean", "min", "per_code"}, "recon_spread", "matrix", "procrustes", "verdict", "words"}``."""
     cfg = config if isinstance(config, Config) else Config.from_dict(config)
-    td = data.train_data(cfg.smoothify_metric) if hasattr(data, "train_data") else data
+    td = data.train_data(cfg.smoothify_metric, cfg.gap_weighting) if hasattr(data, "train_data") else data
     cfg.check_samples(td.n)
     n_runs = int(max(2, n_runs))
     codes, recs = [], []

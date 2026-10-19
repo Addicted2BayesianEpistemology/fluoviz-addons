@@ -27,6 +27,9 @@ FAMILIES = ("ae", "vae")
 BLOCK_KINDS = ("gp", "bspline", "cosine", "pixels")
 PRIORS = ("normal", "mixture")
 SMOOTHIFY_METRICS = ("smooth", "ridge")
+GAP_WEIGHTINGS = ("observed", "equal")                                 # samples that lack part of the domain: count in proportion to what was measured | count like any other sample
+STOP_RULES = ("validation", "training", "never")                      # what decides that training stops: the held-out loss, the training loss, nothing (all epochs)
+LR_SCHEDULES = ("cosine", "cosine_run", "constant", "plateau")         # the learning rate over the epochs
 MAX_LATENT = 32
 MIN_SAMPLES = 12
 
@@ -80,6 +83,7 @@ class Config:
     vae: dict = field(default_factory=lambda: dict(_VAE_DEFAULTS))                    # beta, warmup (epochs; None = 20 %), free_bits, sigma, prior, n_components, n_eff
     smoothify: float = 0.0
     smoothify_metric: str = "smooth"
+    gap_weighting: str = "observed"           # functional versions: a sample that lacks part of the domain (an excised region) counts in proportion to the share of the domain that was measured
     epochs: int = 600
     patience: int = 60
     val_fraction: float = 0.2
@@ -94,6 +98,17 @@ class Config:
     allow_few_samples: bool = False           # train even below MIN_SAMPLES (the page asks the person first)
     grad_clip: float = 5.0
     threads: int | None = None                # PyTorch threads (None: min(4, cores); the environment variable FLUOVIZ_BLAS_THREADS wins)
+    # ---- advanced training settings: every default is what the training did before they existed
+    stop_rule: str = "validation"             # validation: stop when the held-out loss stops improving | training: when the training loss does | never: train every epoch
+    min_epochs: int = 0                       # training never stops before this many epochs (0: as soon as the patience is used up)
+    min_delta: float = 1e-3                   # the smallest relative improvement of the monitored loss that counts as an improvement (0.001 = 0.1 %)
+    val_window: int = 1                       # the monitored loss is the average of the last ``val_window`` epochs (1 = the loss of the epoch itself)
+    max_minutes: float | None = None          # a time limit for ONE network (None = no limit): the best weights so far are kept
+    restore_best: bool = True                 # keep the weights of the best epoch (False: the weights of the last epoch)
+    lr_schedule: str = "cosine"               # cosine (over ``epochs``) | cosine_run (over the epochs this network is planned to train) | constant | plateau (halve when the loss stalls)
+    lr_final: float = 0.01                    # the learning rate at the end of the cosine (and the floor of ``plateau``), as a share of ``lr``
+    final_epochs: Any = "auto"                # k-fold validation: the epochs of the final networks: "auto" (what the folds found) | "max" (``epochs``) | a number
+    final_epochs_min: int = 20                # ... and at least this many when "auto"
 
     def __post_init__(self):
         self.validate()
@@ -139,6 +154,7 @@ class Config:
         self.vae = v
         self.smoothify = _num(self.smoothify, "smoothify", 0.0, 1e6)
         self.smoothify_metric = _choice(self.smoothify_metric, "smoothify_metric", SMOOTHIFY_METRICS)
+        self.gap_weighting = _choice(self.gap_weighting, "The weighting of samples that lack part of the domain", GAP_WEIGHTINGS)
         self.epochs = _num(self.epochs, "The number of epochs", 1, 100000, True)
         self.patience = _num(self.patience, "The patience (epochs without improvement)", 1, 100000, True)
         self.val_fraction = _num(self.val_fraction, "The share of samples held out for validation", 0.05, 0.6)
@@ -150,6 +166,18 @@ class Config:
         self.kfold_below = _num(self.kfold_below, "The sample size below which k-fold validation is used", 0, 100000, True)
         self.grad_clip = _num(self.grad_clip, "The gradient clipping", 0.0, 1e6)
         self.threads = _num(self.threads, "The number of threads", 1, 256, True, allow_none=True)
+        self.stop_rule = _choice(self.stop_rule, "The stopping rule", STOP_RULES)
+        self.min_epochs = _num(self.min_epochs, "The minimum number of epochs", 0, 100000, True)
+        self.min_delta = _num(self.min_delta, "The smallest improvement that counts", 0.0, 0.5)
+        self.val_window = _num(self.val_window, "The number of epochs the loss is averaged over", 1, 100, True)
+        self.max_minutes = _num(self.max_minutes, "The time limit (minutes)", 0.05, 100000.0, allow_none=True)
+        if not isinstance(self.restore_best, bool):
+            raise AutoencoderError("'Keep the weights of the best epoch' must be on or off.")
+        self.lr_schedule = _choice(self.lr_schedule, "The learning-rate schedule", LR_SCHEDULES)
+        self.lr_final = _num(self.lr_final, "The final learning rate (as a share of the learning rate)", 1e-4, 1.0)
+        if self.final_epochs not in ("auto", "max"):
+            self.final_epochs = _num(self.final_epochs, "The number of epochs of the final networks ('auto', 'max' or a number)", 1, 100000, True)
+        self.final_epochs_min = _num(self.final_epochs_min, "The least number of epochs of the final networks", 1, 100000, True)
         self.allow_few_samples = bool(self.allow_few_samples)
         self.skip = bool(self.skip)
         if not isinstance(self.input, dict):
@@ -169,6 +197,10 @@ class Config:
             return 0
         w = self.vae["warmup"]
         return int(round(0.2 * self.epochs)) if w is None else int(min(w, self.epochs))
+
+    def uses_early_stopping(self) -> bool:
+        """Does training stop before ``epochs`` when the monitored loss stops improving?"""
+        return self.stop_rule != "never"
 
     def batch_for(self, n_train: int) -> int:
         """The batch size: the one chosen, or by default ``min(32, max(8, n_train / 6))`` (at least about six optimiser steps per epoch: with tens of samples a batch of 32 is only one or two

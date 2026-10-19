@@ -1,5 +1,7 @@
 """The saved model of an autoencoder through the generic models router: freeze, file, apply to the same samples (the codes of the page), to another project with other sample names, to a
 coarser grid, planted anomalies, gaps; a re-opened project; the model as the first link of an LDA chain."""
+import json
+
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -67,7 +69,7 @@ def test_the_saved_model_reproduces_the_codes_of_the_page(world):
     d = world.get(f"/api/models/{mid}").json()
     assert d["applicable"] and d["problem"] == "" and [o["name"] for o in d["options"]] == ["limit", "typicality"] and "z1" in [o["name"] for o in d["outputs"]]
     assert d["describe"]["training"]["Samples"] == 36 and d["describe"]["caveats"] and d["recipes"] and d["recipes"][0]["steps"] and d["validation"]["r2_val"] > 0.9
-    assert world.S.models.get(mid).meta["addon"] == {"id": "autoencoders", "version": "1.0.0"}
+    assert world.S.models.get(mid).meta["addon"] == {"id": "autoencoders", "version": json.loads((A.ADDON / "manifest.json").read_text(encoding="utf-8"))["version"]}
     sv = world.get("/api/models/saveable").json()["results"][0]
     assert sv["id"] == rid and sv["kind"] == "autoencoder" and sv["saveable"] and sv["saved_as"] == [mid]
     chk = world.post(f"/api/models/{mid}/check", json={"select": "all"}).json()

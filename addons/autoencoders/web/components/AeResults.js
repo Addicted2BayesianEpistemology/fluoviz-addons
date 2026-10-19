@@ -9,6 +9,7 @@ import { fp, ctx, STALE_WORDS } from './AeState.js';
 import { AeStat, AeTabs, AeVerdict, pct, nTxt } from './AeCommon.js';
 import { AeLatentTab } from './AeLatentTab.js';
 import { AeTraversalsTab } from './AeTraversalsTab.js';
+import { AeNonlinearTab } from './AeNonlinearTab.js';
 import { AeSamplesTab } from './AeSamplesTab.js';
 import { AeInterpTab, AeGenerateTab } from './AeInterpGenTabs.js';
 
@@ -62,7 +63,7 @@ export const AeGate = {
 
 export const AeResults = {
   name: 'AeResults',
-  components: { FpcaFrame, FpcaExplain, AeStat, AeTabs, AeVerdict, AeGate, AeStaleNote, AeLatentTab, AeTraversalsTab, AeSamplesTab, AeInterpTab, AeGenerateTab },
+  components: { FpcaFrame, FpcaExplain, AeStat, AeTabs, AeVerdict, AeGate, AeStaleNote, AeLatentTab, AeTraversalsTab, AeNonlinearTab, AeSamplesTab, AeInterpTab, AeGenerateTab },
   setup() {
     const A = computed(() => fp.ae), R = computed(() => fp.ae.res);
     const q = computed(() => (R.value ? R.value.p.quality || {} : {}));
@@ -72,7 +73,7 @@ export const AeResults = {
     const nFlagged = computed(() => (R.value ? R.value.flag.filter((f) => f && !/^inside/i.test(f)).length : 0));
     const isVae = computed(() => !!R.value && R.value.family === 'vae');
     const tabs = computed(() => [
-      { id: 'latent', label: 'Latent space' }, { id: 'traversals', label: 'Traversals' }, { id: 'samples', label: 'Samples' }, { id: 'interpolation', label: 'Interpolation' },
+      { id: 'latent', label: 'Latent space' }, { id: 'traversals', label: 'Traversals' }, { id: 'nonlinear', label: 'Nonlinear effects' }, { id: 'samples', label: 'Samples' }, { id: 'interpolation', label: 'Interpolation' },
       { id: 'generate', label: 'Generate', disabled: !isVae.value, why: 'Only variational autoencoders can draw new samples. Train a variational autoencoder (step 5).' },
     ]);
     // 'Generate' exists only for a variational autoencoder: another network (or an older choice of the tab) falls back to the first tab
@@ -82,7 +83,7 @@ export const AeResults = {
   },
   template: `
   <FpcaFrame :n="7" next-label="Check the network" :no-next="!ready" :next-disabled="!ready">
-    <FpcaExplain does="Shows what the network has learned: where every sample lies in the space of the codes, what each code does to the EEM, how well each single sample is rebuilt, what lies between two samples, and (for a variational autoencoder) new samples drawn by the network."
+    <FpcaExplain does="Shows what the network has learned: where every sample lies in the space of the codes, what each code does to the EEM (and whether it does it in a straight line), how well each single sample is rebuilt, what lies between two samples, and (for a variational autoencoder) new samples drawn by the network."
                  check="That the held-out variance explained is high and not much lower than the training one (otherwise the network memorised the samples), that the network is at least as good as PCA with the same number of codes (step 8 says whether the nonlinearity is worth it), and that the codes mean something: colour the latent space by your own variables."/>
     <AeGate/>
     <template v-if="ready">
@@ -99,6 +100,7 @@ export const AeResults = {
       <AeTabs v-model="tab7" :tabs="tabs" label="Views of the results"/>
       <div data-ae-panel="latent" v-if="tab7 === 'latent'"><AeLatentTab/></div>
       <div data-ae-panel="traversals" v-else-if="tab7 === 'traversals'"><AeTraversalsTab/></div>
+      <div data-ae-panel="nonlinear" v-else-if="tab7 === 'nonlinear'"><AeNonlinearTab/></div>
       <div data-ae-panel="samples" v-else-if="tab7 === 'samples'"><AeSamplesTab/></div>
       <div data-ae-panel="interpolation" v-else-if="tab7 === 'interpolation'"><AeInterpTab/></div>
       <div data-ae-panel="generate" v-else-if="tab7 === 'generate'"><AeGenerateTab/></div>

@@ -64,6 +64,9 @@ def sample_view(p, r, sid: str, thumb: bool = False) -> dict:
                  "elbo": None if jd.elbo is None else float(jd.elbo[0]), "limit": lim, "flag": str(jd.flag[0])}
     mean = model.mean_functions()
     blocks = []
+    lacking = _lacking(model, ev, sid)
+    if lacking:
+        out["missing"], out["missing_words"] = lacking
     for k, b in enumerate(model.frame.blocks):
         y, rec = ev.treated[b.name][0], ev.recon[b.name][0]
         resid = np.where(np.isfinite(y), y - rec, np.nan)
@@ -82,6 +85,25 @@ def sample_view(p, r, sid: str, thumb: bool = False) -> dict:
     out["blocks"] = blocks
     out["text"] = _sample_text(sid, jd, ev, lim, str(opt["limit"]))
     return out
+
+
+def _lacking(model, ev, sid: str):
+    """``({block: share of the domain the sample lacks}, words)`` for a sample that lacks part of the domain of a variable (an excised region, pixels the instrument did not report), else None."""
+    share, words = {}, []
+    for b in model.frame.blocks:
+        y = np.asarray(ev.treated[b.name][0], float)
+        w = np.asarray(b.domain.w, float)
+        s = float(w[~np.isfinite(y)].sum() / max(w.sum(), 1e-300))
+        if s < 0.005:
+            continue
+        share[b.name] = s
+        if b.kind == "pixels":
+            words.append(f"The {b.name} of {sid} lacks {100 * s:.0f} % of the domain (not measured, or cut out): the network ignores those pixels, and the error is judged on the rest.")
+        else:
+            how = "from the pixels the sample has" + (" and from what the other samples show" if getattr(b.element, "gap", None) is not None else "")
+            words.append(f"The {b.name} of {sid} lacks {100 * s:.0f} % of the domain (not measured, or cut out): the network was shown an estimate of that part, made {how}. "
+                         "The measured picture is blank there and the rebuilt one is filled in by the network.")
+    return (share, " ".join(words)) if share else None
 
 
 def _sample_text(sid: str, jd: Judgement, ev, lim: float, lev: str) -> str:

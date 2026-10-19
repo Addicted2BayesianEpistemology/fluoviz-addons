@@ -48,6 +48,7 @@ class TrainData:
     ids: list
     info: dict = field(default_factory=dict)
     q_rough: list | None = None        # the smoothness metric of every block for the roughness measures (always the 'smooth' one, whatever ``q`` is)
+    sw: np.ndarray | None = None       # (n,) loss weight of every sample (mean 1): samples that lack part of the domain count in proportion to what was measured; None = all alike
 
     @property
     def n(self) -> int:
@@ -76,9 +77,16 @@ class TrainData:
     def block_sizes(self) -> list[int]:
         return [int(b["slice"][1] - b["slice"][0]) for b in self.blocks]
 
+    def sw_of(self, idx=None):
+        """The loss weights of the samples ``idx`` (None = all of them), or None when every sample counts alike."""
+        if self.sw is None:
+            return None
+        return np.asarray(self.sw, float) if idx is None else np.asarray(self.sw, float)[np.asarray(idx)]
+
     def subset(self, idx) -> "TrainData":
         idx = np.asarray(idx)
-        return TrainData(self.X[idx], None if self.M is None else self.M[idx], self.omega, self.blocks, self.q, self.sd, [self.ids[i] for i in idx], self.info, self.q_rough)
+        return TrainData(self.X[idx], None if self.M is None else self.M[idx], self.omega, self.blocks, self.q, self.sd, [self.ids[i] for i in idx], self.info, self.q_rough,
+                         None if self.sw is None else self.sw[idx])
 
 
 # ----------------------------------------------------------------------------- functions <-> coordinates
@@ -114,7 +122,8 @@ class AEFrameBlock:
     def coordinates(self, Yt: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
         """Network coordinates ``(n, K)`` of already treated samples ``Yt`` ``(n, m)`` (NaN = not observed) and the observed mask (None = all observed).
         Pixels: ``(y - mean) / s``, unobserved coordinates 0.  Functional: the sample is smoothed on ITS OWN observed pixels with the smoothing parameters of the training
-        samples, centred, moved to the L2 frame and divided by ``scale``."""
+        samples (a part it lacks is estimated from the pixels it has and from what the other samples show, as for the training samples, when they had gaps), centred, moved to the
+        L2 frame and divided by ``scale``."""
         Yt = np.asarray(Yt, float)
         rt = self.runtime()
         if self.kind == PIXELS:
@@ -245,6 +254,7 @@ class Block:
     smoothing: dict = field(default_factory=dict)
     notes: list = field(default_factory=list)
     prior_cumulative: float | None = None
+    missing: np.ndarray | None = None  # (n,) the share of the L2 weight of the domain each sample lacks (0 = it has every pixel)
 
 
 @dataclass
@@ -285,13 +295,36 @@ class Prepared:
         raise KeyError(name)
 
     # ------------------------------------------------------------------ for training
-    def train_data(self, smoothify_metric: str = "smooth") -> TrainData:
+    def train_data(self, smoothify_metric: str = "smooth", gap_weighting: str = "observed") -> TrainData:
         omega = np.concatenate([b.omega for b in self.blocks])
         q = [b.q_ridge if smoothify_metric == "ridge" else b.q_smooth for b in self.blocks]
         return TrainData(self.X, self.M, omega, self.model_blocks(), q, self.sd, list(self.ids),
                          {"names": self.names, "mode": self.mode, "n_pixels": {b.name: int(b.domain.m) for b in self.blocks},
                           "grid": {b.name: {"shape": [int(v) for v in b.domain.shape], "idx": np.asarray(b.domain.idx), "kind": b.kind} for b in self.blocks}},
-                         [b.q_smooth for b in self.blocks])
+                         [b.q_smooth for b in self.blocks], self.sample_weights(gap_weighting))
+
+    def sample_weights(self, mode: str = "observed") -> np.ndarray | None:
+        """The loss weight of every sample ``(n,)`` (mean 1), or None.  A sample that lacks part of the domain of a FUNCTIONAL variable (a rectangle excised from it) has coefficients that were
+        estimated from the pixels it has and from the other samples: it is less certain, so it counts in proportion to the share of the domain that was measured (the mean over the functional
+        variables; at least 5 %).  Pixel variables do not need it (their loss already ignores the missing pixels).  None when every sample has all it needs, or ``mode`` is ``"equal"``."""
+        if mode == "equal":
+            return None
+        miss = [b.missing for b in self.blocks if b.kind != PIXELS and b.missing is not None]
+        if not miss:
+            return None
+        m = np.mean(miss, axis=0)
+        if not (m >= 0.005).any():
+            return None
+        w = np.clip(1.0 - m, 0.05, 1.0)
+        return w / float(w.mean())
+
+    def missing_part(self) -> np.ndarray | None:
+        """The share of the domain every sample lacks ``(n,)`` (the mean over the variables), or None when no sample lacks anything worth mentioning (less than half a per cent)."""
+        miss = [b.missing for b in self.blocks if b.missing is not None]
+        if not miss:
+            return None
+        m = np.mean(miss, axis=0)
+        return m if (m >= 0.005).any() else None
 
     def model_blocks(self) -> list[dict]:
         return [{"name": b.name, "slice": [int(b.sl.start), int(b.sl.stop)], "kind": b.kind, "weight": 1.0} for b in self.blocks]
@@ -348,6 +381,12 @@ def _basis_spec(inp: dict, name: str) -> dict:
     if inp.get("functional") is False:
         return {"kind": PIXELS}
     return {}
+
+
+def _gaps_spec(inp: dict, name: str) -> str:
+    """What to do with pixels that only some samples have (``input[name]["gaps"]``: ``auto`` = estimate them from the other samples, ``plain`` = every sample on its own pixels)."""
+    sub = inp.get(name)
+    return "plain" if isinstance(sub, dict) and sub.get("gaps") == "plain" else "auto"
 
 
 def _smoothing_spec(inp: dict, name: str) -> dict:
@@ -548,7 +587,7 @@ def prepare(variables: list, input: dict | None = None, progress=None, seed: int
                 blk_notes.append(f"{100 * (1 - float(M.mean())):.1f} % of the {v.name} values inside the domain are not observed: the network ignores them in the loss.")
             q_pix = _unit_q({"kind": "identity"}, x)
             blk = Block(v.name, kind, slice(a, a + K), K, v.domain, str(v.units or ""), v.transform, scale, omega_w, msq, q_pix, q_pix, Y, ybar,
-                        None, None, {"criterion": "none"}, blk_notes)
+                        None, None, {"criterion": "none"}, blk_notes, None, v.missing_share())
             resolved["basis"][v.name] = {"kind": PIXELS}
             resolved["smoothing"][v.name] = {}
             fb = AEFrameBlock(v.name, kind, K, scale, fe)
@@ -557,14 +596,14 @@ def prepare(variables: list, input: dict | None = None, progress=None, seed: int
             basis, _est = resolve_basis(v, bspec, sub.sub(0.0, 0.3))
             smoothing = _smoothing_spec(inp, v.name)
             sub(0.3, f"Smoothing the {v.name}")
-            el = prepare_element(v.name, v.domain, v.Y, basis, smoothing, v.units, sub.sub(0.3, 1.0), seed)
+            el = prepare_element(v.name, v.domain, v.Y, basis, smoothing, v.units, sub.sub(0.3, 1.0), seed, _gaps_spec(inp, v.name))
             x, d, omega_w, msq, fe, q_smooth, q_ridge, bn, cum = _functional_block(el, v, ife)
             K = x.shape[1]
             M = None
             fit = el.fit
             sm = {"criterion": fit.criterion, "theta": {k: val for k, val in (fit.theta or {}).items() if k != "scales"}, "sigma2": float(fit.sigma2), "sigma_f2": float(fit.sigma_f2)}
             blk = Block(v.name, kind, slice(a, a + K), K, v.domain, str(v.units or ""), v.transform, d, omega_w, msq, q_smooth, q_ridge, v.Y, el.ybar, el, el.rep, sm,
-                        list(el.notes) + list(v.notes) + bn, cum)
+                        list(el.notes) + [t for t in v.notes if not (el.fit.gap is not None and "are missing in some samples" in t)] + bn, cum, v.missing_share())
             resolved["basis"][v.name] = {k: val for k, val in basis.items()}
             resolved["smoothing"][v.name] = smoothing
             fb = AEFrameBlock(v.name, kind, K, d, fe)
@@ -587,7 +626,7 @@ def prepare(variables: list, input: dict | None = None, progress=None, seed: int
 
 
 # ----------------------------------------------------------------------------- convenience: from plain arrays (tests, scripts)
-def variables_from_arrays(X=None, ex=None, em=None, ids=None, A=None, wl=None, abs_ids=None, input: dict | None = None, min_coverage: float = 0.9, units: str = "") -> list:
+def variables_from_arrays(X=None, ex=None, em=None, ids=None, A=None, wl=None, abs_ids=None, input: dict | None = None, min_coverage: float = 0.5, units: str = "") -> list:
     """``fluorescence`` / ``absorbance`` ``Variable`` objects from arrays: ``X[sample, emission, excitation]`` (NaN = masked) and ``A[sample, wavelength]``.  Pre-treatments and
     ``min_coverage`` are read from ``input`` as in the Functional PCA request (``input[name]["transform"]``)."""
     from fluoviz.analysis.fpca.variables import absorbance_variable, fluorescence_variable

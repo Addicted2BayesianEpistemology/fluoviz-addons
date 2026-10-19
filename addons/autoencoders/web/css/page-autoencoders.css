@@ -48,7 +48,7 @@
 .ae-thumb canvas[data-transposed] { width: 55%; margin: 0 auto; }
 
 /* ---------------------------------------------------------------- samples */
-.ae-samples-grid { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: var(--gap); align-items: start; }
+.ae-samples-grid { display: grid; grid-template-columns: minmax(300px, 390px) minmax(0, 1fr); gap: var(--gap); align-items: start; }
 @media (max-width: 1100px) { .ae-samples-grid { grid-template-columns: minmax(0, 1fr); } }
 .ae-sample-list tbody tr[data-ae-sample-row] { cursor: pointer; }
 .ae-sample-list tbody tr[data-ae-sample-row]:hover { background: var(--surface-3); }
@@ -70,4 +70,25 @@
 @media (max-width: 640px) {
   .ae-page .fp-panel-head, .ae-page .fp-panel-body, .ae-page .fp-callouts, .ae-page .fp-nav { padding-left: 14px; padding-right: 14px; }
   .ae-page .card-head { flex-wrap: wrap; }
+}
+
+/* ---------------------------------------------------------------- tab "Nonlinear effects" */
+.ae-seg-wrap { flex-wrap: wrap; max-width: 100%; border-radius: 18px; }
+.ae-nl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: var(--gap); min-width: 0; }
+.ae-nl-grid > * { min-width: 0; }
+.ae-nl-legend { display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: center; font-size: 12.5px; color: var(--text-2); }
+.ae-nl-legend-item { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.ae-swatch { flex: none; display: block; }
+.ae-nl-words { list-style: none; margin: 0; padding: 2px 14px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
+.ae-nl-words li { display: flex; align-items: flex-start; gap: 8px; }
+.ae-nl-words li .ae-swatch { margin-top: 3px; }
+.ae-nl-chips { gap: 6px 8px; }
+.ae-nl-chip { height: auto; min-height: 26px; padding-top: 3px; padding-bottom: 3px; white-space: normal; max-width: 100%; text-align: left; }
+.ae-nl-chip .x[aria-disabled="true"] { opacity: .3; cursor: not-allowed; }
+.ae-nl-pick > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); padding: 4px 0; }
+.ae-nl-pick > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.ae-page .callout .btn.xs { vertical-align: baseline; }
+@media (max-width: 640px) {
+  .ae-nl-grid { grid-template-columns: minmax(0, 1fr); }
+  .ae-nl-words { padding-left: 10px; padding-right: 10px; }
 }

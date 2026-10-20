@@ -19,21 +19,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from fluoviz_addon_common import functional as F
+from fluoviz_addon_common.functional import variables_from_arrays  # noqa: F401  (part of this module's interface)
+from fluoviz_addon_common.serial import allow as _serial_allow
 
 from .spec import AutoencoderError, Config
 
-PIXELS = "pixels"
+PIXELS = F.PIXELS
 NAMES = ("fluorescence", "absorbance")
-
-
-def _serial_allow(cls):
-    """Let the dataclass be stored in a saved model (``fluoviz.analysis.frozen.serial``); nothing happens when FluoViz is not importable."""
-    try:
-        from fluoviz.analysis.frozen import serial
-        serial.allow(cls)
-    except Exception:                                                  # noqa: BLE001 - tests of the numerics run without the saved-model machinery
-        pass
-    return cls
 
 
 # ----------------------------------------------------------------------------- what training needs (numpy only: this is what travels to the worker process)
@@ -363,43 +356,14 @@ class Prepared:
 # ----------------------------------------------------------------------------- reading the request
 def _basis_spec(inp: dict, name: str) -> dict:
     """The basis settings of variable ``name`` in any of the ways a request can say it (``input[name]["basis"]``, ``input["basis"][name]``, ``input["representation"]``)."""
-    sub = inp.get(name)
-    if isinstance(sub, dict) and isinstance(sub.get("basis"), dict):
-        return dict(sub["basis"])
-    b = inp.get("basis")
-    if isinstance(b, dict):
-        if name in b and isinstance(b[name], dict):
-            return dict(b[name])
-        if "kind" in b:
-            return dict(b)
-    r = inp.get("representation")
-    if isinstance(r, dict):
-        if name in r and isinstance(r[name], dict):
-            return dict(r[name])
-        if "kind" in r:
-            return dict(r)
-    if inp.get("functional") is False:
-        return {"kind": PIXELS}
-    return {}
+    b = F.lookup_basis(inp, name, ("basis", "representation"))
+    if b is not None:
+        return b
+    return {"kind": PIXELS} if inp.get("functional") is False else {}
 
 
-def _gaps_spec(inp: dict, name: str) -> str:
-    """What to do with pixels that only some samples have (``input[name]["gaps"]``: ``auto`` = estimate them from the other samples, ``plain`` = every sample on its own pixels)."""
-    sub = inp.get(name)
-    return "plain" if isinstance(sub, dict) and sub.get("gaps") == "plain" else "auto"
-
-
-def _smoothing_spec(inp: dict, name: str) -> dict:
-    sub = inp.get(name)
-    if isinstance(sub, dict) and isinstance(sub.get("smoothing"), dict):
-        return dict(sub["smoothing"])
-    s = inp.get("smoothing")
-    if isinstance(s, dict):
-        if name in s and isinstance(s[name], dict):
-            return dict(s[name])
-        if "method" in s:
-            return dict(s)
-    return {}
+_gaps_spec = F.gaps_spec
+_smoothing_spec = F.smoothing_spec
 
 
 # ----------------------------------------------------------------------------- the blocks
@@ -433,33 +397,15 @@ def _unit_q(q: dict, X: np.ndarray) -> dict:
     return {"kind": "diag", "d": q["d"] * c} if q["kind"] == "diag" else {"kind": "dense", "Q": q["Q"] * c}
 
 
+NOTHING = "there is nothing for a network to learn."
+
+
 def _pixel_block(v, seed: int) -> tuple:
-    from fluoviz.analysis.frozen.kinds.fpca import FrozenElement
-    dom = v.domain
-    Y = np.asarray(v.Y, float)
-    n, m = Y.shape
-    with np.errstate(invalid="ignore"):
-        ybar = np.nanmean(Y, axis=0)
-    if np.isnan(ybar).any():
-        raise AutoencoderError(f"Some points of the {v.name} domain are not measured in any sample: raise the share of samples that must have a point, or mask them.")
-    R = Y - ybar
-    obs = np.isfinite(R)
-    w = dom.w
-    cov = (obs * w).sum(axis=1)
-    if (cov <= 0).any():
-        raise AutoencoderError(f"A sample has no measured {v.name} value inside the domain.")
-    ss = np.where(obs, R, 0.0) ** 2 @ w / cov                        # squared L2 norm of every centred sample (average over the part of the domain that was measured)
-    s = float(np.sqrt(np.mean(ss)))
-    if not np.isfinite(s) or s <= 0:
-        raise AutoencoderError(f"The {v.name} of the samples are all the same: there is nothing for a network to learn.")
+    Y, ybar, R, obs, w, msq = F.centred_pixels(v, AutoencoderError, NOTHING)
+    s = float(np.sqrt(msq))
     x = np.where(obs, R, 0.0) / s
-    scale = np.full(m, s)
-    fe = FrozenElement(name=v.name, kind=dom.kind, units=str(v.units or ""), transform=str(v.transform),
-                       asinh_scale=float(v.info.get("asinh_scale", float("nan"))) if v.transform == "asinh" and dom.kind == "surface" else float("nan"),
-                       axis_names=list(dom.names), axes=[np.asarray(a, float) for a in dom.axes], obs=np.asarray(dom.obs, bool), w=np.asarray(dom.w, float), measure=float(dom.measure),
-                       basis={"kind": PIXELS, "K": int(m)}, B=None, prior_lam=None, smoothing={"criterion": "none", "gamma": "none", "sigma2": float("nan"), "sigma_f2": float("nan")},
-                       ybar=ybar, cbar=ybar.copy(), offset=np.zeros(m), ife=None, n_pixels_grid=int(np.prod(dom.shape)))
-    return x, (None if obs.all() else obs), scale, w.copy(), s * s, fe, ybar, Y
+    scale = np.full(Y.shape[1], s)
+    return x, (None if obs.all() else obs), scale, w.copy(), s * s, F.pixel_element(v, ybar), ybar, Y
 
 
 def _functional_block(el, v, ife):
@@ -468,18 +414,11 @@ def _functional_block(el, v, ife):
     rep = el.rep
     Z = np.asarray(el.Z, float)
     K = Z.shape[1]
-    msq = float(np.mean((Z ** 2).sum(axis=1)))                           # total variance of the variable: mean squared L2 norm of the centred samples
-    if not np.isfinite(msq) or msq <= 0:
-        raise AutoencoderError(f"The {v.name} functions are all the same: there is nothing for a network to learn.")
+    msq = F.total_variance(Z, v.name, AutoencoderError, NOTHING)         # total variance of the variable: mean squared L2 norm of the centred samples
     notes: list = []
     cumulative = None
     if rep.kind == "gp":
-        lam = np.asarray(rep.prior_lam, float)
-        sf2 = float(el.fit.sigma_f2)
-        if not np.isfinite(sf2) or sf2 <= 0:
-            sf2 = float(np.var(Z, axis=0, ddof=1).sum() / lam.sum())
-            notes.append("The amplitude of the Gaussian process was not estimated by maximum likelihood: it was taken from the variance of the data.")
-        d = np.sqrt(sf2 * lam)
+        d = F.gp_prior_scale(el, Z, notes)
         omega = d ** 2 / msq
         q_smooth = {"kind": "identity"}
         q_ridge = {"kind": "diag", "d": d ** 2}
@@ -625,20 +564,4 @@ def prepare(variables: list, input: dict | None = None, progress=None, seed: int
     return Prepared(list(ids), blocks, X, M_out, AEFrame(fblocks), resolved, sd, notes, dropped, variables, int(seed))
 
 
-# ----------------------------------------------------------------------------- convenience: from plain arrays (tests, scripts)
-def variables_from_arrays(X=None, ex=None, em=None, ids=None, A=None, wl=None, abs_ids=None, input: dict | None = None, min_coverage: float = 0.5, units: str = "") -> list:
-    """``fluorescence`` / ``absorbance`` ``Variable`` objects from arrays: ``X[sample, emission, excitation]`` (NaN = masked) and ``A[sample, wavelength]``.  Pre-treatments and
-    ``min_coverage`` are read from ``input`` as in the Functional PCA request (``input[name]["transform"]``)."""
-    from fluoviz.analysis.fpca.variables import absorbance_variable, fluorescence_variable
-    inp = dict(input or {})
-    out = []
-    if X is not None:
-        sub = inp.get("fluorescence") if isinstance(inp.get("fluorescence"), dict) else {}
-        pix = _basis_spec(inp, "fluorescence").get("kind") == PIXELS
-        ids = list(ids) if ids is not None else [f"S{i + 1:02d}" for i in range(np.asarray(X).shape[0])]
-        out.append(fluorescence_variable(X, ex, em, ids, transform=sub.get("transform", "none"), min_coverage=sub.get("min_coverage", min_coverage), units=units, complete=False if pix else False))
-    if A is not None:
-        sub = inp.get("absorbance") if isinstance(inp.get("absorbance"), dict) else {}
-        aids = list(abs_ids) if abs_ids is not None else (list(ids) if ids is not None else [f"S{i + 1:02d}" for i in range(np.asarray(A).shape[0])])
-        out.append(absorbance_variable(wl, A, aids, transform=sub.get("transform", "none"), units="absorbance"))
-    return out
+# (``variables_from_arrays``, the convenience for tests and scripts, is the shared one imported at the top)

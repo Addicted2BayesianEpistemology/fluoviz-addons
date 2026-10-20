@@ -1,63 +1,23 @@
 """Looking at a result ``autoencoder-N``: finding it, its network (kept in memory after the first use: only numpy arrays), whether it is outdated, and the images in the orientation of
-the browser.  The network and everything the page needs live in the result payload, so a project that was closed and opened again behaves exactly like one that was not."""
+the browser.  The network and everything the page needs live in the result payload, so a project that was closed and opened again behaves exactly like one that was not.  What the
+self-organising map add-on does the same way is in the ``common`` add-on (``fluoviz_addon_common.results``)."""
 from __future__ import annotations
 
 import numpy as np
-from fastapi import HTTPException
+from fluoviz_addon_common import results as C
+from fluoviz_addon_common.results import stale_words, turn_images, turn_mask  # noqa: F401  (part of this module's interface)
 
-from fluoviz.analysis.frozen import FrozenError
 from fluoviz.analysis.frozen.kinds import _decomp as D
-from fluoviz.core.project import PART_LABELS
 from fluoviz.server.analysis import plot_image, plot_images, plot_mask
 
-from ..kinds.autoencoder import KIND, options_for
+from ..kinds.autoencoder import options_for
 from ..kinds.freeze import unpack_frozen
 from ..kinds.model import AEModel
 
 RESULT_KIND = "autoencoder"
 
-
-def get_result(p, rid: str):
-    try:
-        r = p.get_result(rid)
-    except ValueError:
-        raise HTTPException(404, f"There is no result '{rid}' (it may have been deleted).") from None
-    if r.kind != RESULT_KIND:
-        raise HTTPException(400, f"'{rid}' is not an autoencoder result.")
-    return r
-
-
-def model_of(r) -> AEModel:
-    """The network of a result (decoded from its payload once, then kept on ``r.obj``; the project file never holds it)."""
-    if isinstance(r.obj, AEModel):
-        return r.obj
-    try:
-        _, model = unpack_frozen((r.payload or {}).get("frozen"))
-    except FrozenError as exc:
-        raise HTTPException(400, str(exc)) from None
-    r.obj = model
-    return model
-
-
-def frozen_of(r) -> dict:
-    try:
-        frozen, _ = unpack_frozen((r.payload or {}).get("frozen"))
-    except FrozenError as exc:
-        raise HTTPException(400, str(exc)) from None
-    return frozen
-
-
-def stale_words(p, r) -> str:
-    stale = p.stale_parts(r)
-    return ", ".join(PART_LABELS[x] for x in stale)
-
-
-def require_current(p, r, what: str = "this") -> None:
-    """Refuse (plain English) an endpoint that needs the measured data when the data are no longer those the network was trained on."""
-    words = stale_words(p, r)
-    if words:
-        raise HTTPException(400, f"The data or the corrections changed since this network was trained ({words}), so {what} cannot be shown against the current data. "
-                                 "Use 'Train again with the same settings' to train it on the current data.")
+_R = C.Results(RESULT_KIND, a_noun="an autoencoder", noun="network", did="trained", verb="train", again="Train again with the same settings", model_class=AEModel, unpack=unpack_frozen)
+get_result, model_of, frozen_of, require_current = _R.get_result, _R.model_of, _R.frozen_of, _R.require_current
 
 
 def default_options(model: AEModel) -> dict:
@@ -117,11 +77,10 @@ def block_payload(model: AEModel, name: str, F: np.ndarray, **extra) -> dict:
 def turn_for_browser(payload: dict, model: AEModel) -> dict:
     """The stored payload as the page reads it: the frozen weights are left out, images and masks are turned to ``(…, n_ex, n_em)``."""
     out = {k: v for k, v in payload.items() if k != "frozen"}
-    imgs = out.get("images")
-    if isinstance(imgs, dict):
-        out["images"] = {k: (plot_images(v) if isinstance(v, np.ndarray) and v.ndim == 3 else plot_image(v) if isinstance(v, np.ndarray) and v.ndim == 2 else v) for k, v in imgs.items()}
-    if isinstance(out.get("mask"), np.ndarray) and out["mask"].ndim == 2:
-        out["mask"] = plot_mask(out["mask"])
+    if "images" in out:
+        out["images"] = turn_images(out["images"])
+    if "mask" in out:
+        out["mask"] = turn_mask(out["mask"])
     q = out.get("quality")
     if isinstance(q, dict):
         q = dict(q)

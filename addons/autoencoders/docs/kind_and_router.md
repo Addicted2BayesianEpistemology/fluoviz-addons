@@ -8,8 +8,8 @@ fluoviz_addon_autoencoders/
     kinds/                 numpy only (no PyTorch, no server): what a saved model is and does
         model.py             AEModel: the frozen network + how a sample becomes input (core.data.AEFrame, core.forward.Network); Evaluation
         autoencoder.py       the applier (apply / inspect / describe / options), judge() (status + reasons), publish() (variables), reference_for()
-        freeze.py            freeze_autoencoder(p, result, title, note), pack_frozen / unpack_frozen (the `payload["frozen"]` format)
-        stats.py             error limits, typicality of a code, KL, ELBO
+        freeze.py            freeze_autoencoder(p, result, title, note), pack_frozen / unpack_frozen (the `payload["frozen"]` format; the steps are those of the shared add-on, `fluoviz_addon_common.freeze`)
+        stats.py             error limits (computed by `fluoviz_addon_common.limits`), typicality of a code, KL, ELBO
         tools.py             traversals, interpolation, generation, sensitivity (decoder only)
     server/                the router (thin): request, prep, advice, fitjob, payload, views, scans, exports, methods, history, results, trainer, nlrequest + nonlinear (the four views of the nonlinear effects of the codes: api.md 2.15)
 tests/                     (the API tests start the add-on with FluoViz's own dev-mode loader, `FLUOVIZ_ADDONS_DEV`; a hand-wired `AddonAPI` stand-in is only the fallback) test_kind_autoencoder.py, test_api_autoencoders.py, test_api_models.py, test_api_scans.py, test_api_training.py (+ kind_support.py, api_support.py)

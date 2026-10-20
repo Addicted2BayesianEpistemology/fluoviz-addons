@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path[:0] = [str(HERE.parents[1]), str(HERE.parent)]
+sys.path[:0] = [str(HERE.parents[1]), str(HERE.parent), str(HERE.parents[2] / "common")]
 
 
 def start(port: int, n: int = 36, absorbance: bool = True):

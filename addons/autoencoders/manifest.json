@@ -2,10 +2,11 @@
   "schema": 1,
   "id": "autoencoders",
   "name": "Autoencoders (AE, VAE)",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "summary": "Autoencoders and variational autoencoders for EEMs and absorbance, also on the coefficients of a functional basis, with latent-space tools, anomaly detection and saved models.",
   "description": "Adds the page Autoencoders to the experimental methods. A neural network learns a few numbers (the latent code) that describe each sample, and rebuilds the sample from them. Variational autoencoders also learn what a typical code looks like, so they can draw new, similar samples and tell when a sample is unusual. The functional versions work on the coefficients of the basis chosen as for the functional PCA, and have a smoothing setting (smoothify). The codes become variables you can plot, cluster and classify, and a fitted network can be saved and applied to new samples. Installing it downloads about 150 MB of extra libraries (PyTorch, CPU version).",
-  "requires_fluoviz": ">=1.0.0,<2",
+  "requires_fluoviz": ">=1.1.0,<2",
+  "requires_addons": {"common": ">=1.0.0,<2"},
   "platforms": [
     "linux-64",
     "linux-aarch64",

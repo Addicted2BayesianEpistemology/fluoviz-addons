@@ -20,7 +20,7 @@ def test_the_manifest_needs_no_extra_library():
 
 
 def test_importing_the_add_on_loads_no_heavy_library():
-    code = (f"import sys; sys.path[:0] = [{str(ADDON)!r}, {str(ROOT.parent / '80_fluoViz')!r}]; import fluoviz_addon_som; from fluoviz_addon_som.server import router; from fluoviz_addon_som.kinds import SomApplier; "
+    code = (f"import sys; sys.path[:0] = [{str(ADDON)!r}, {str(ADDON.parent / 'common')!r}, {str(ROOT.parent / '80_fluoViz')!r}]; import fluoviz_addon_som; from fluoviz_addon_som.server import router; from fluoviz_addon_som.kinds import SomApplier; "
             "bad = [m for m in ('torch', 'tensorflow', 'sklearn.neural_network') if m in sys.modules]; assert not bad, bad; print('ok')")
     r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, cwd=str(ADDON))
     assert r.returncode == 0 and "ok" in r.stdout, r.stderr[-800:]

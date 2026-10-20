@@ -3,7 +3,7 @@
 // The pictures themselves are in figures.js and are drawn from numbers computed with the add-on's own code (data.js: tests/help_data.py writes them, tests/test_help_autoencoders.py recomputes them).
 import { Icon } from '/static/js/icons.js';
 import { Callout } from '/static/js/components/Common.js';
-import { go } from '/static/js/router.js';
+import { helpParts } from '/addon-web/common/web/help.js';
 import { prefs } from '/static/js/prefs.js';
 
 /** Are the EEM pictures of the program drawn with excitation across and emission up?  (Settings > Appearance > Axes of fluorescence maps; the maps of this guide follow it, like every other EEM picture.
@@ -13,24 +13,8 @@ export const transposed = () => !!prefs.eemTranspose;
 /** The Help tab of this guide (the address is  #/help?tab=addon:autoencoders:autoencoders&topic=<page>). */
 export const TAB = 'addon:autoencoders:autoencoders';
 
-/** A word of the interface (a button, a field, a step, a tab).  The test of the guide looks for every one of them in the page and in docs/ui.md. */
-export const Ui = { name: 'Ui', template: `<i class="ui"><slot/></i>` };
-
-/** A link to another page of the guide.  Without `tab` it is a page of this guide; tab="experimental" is the guide "Experimental methods", tab="saved" the guide "Saved models" (both of FluoViz). */
-export const GLink = {
-  name: 'GLink',
-  props: { to: { type: String, required: true }, tab: { type: String, default: TAB } },
-  setup(props) { return { open: () => go('/help', { tab: props.tab, topic: props.to }) }; },
-  template: `<a class="g-link" href="#" @click.prevent="open"><slot/></a>`,
-};
-
-/** A link to a page of the program (the page of this add-on, Settings, Plots ...). */
-export const PLink = {
-  name: 'PLink',
-  props: { path: { type: String, required: true }, query: { type: Object, default: null } },
-  setup(props) { return { open: () => go(props.path, props.query || undefined) }; },
-  template: `<a class="g-link" href="#" @click.prevent="open" :data-plink="path"><slot/></a>`,
-};
+const { Ui, GLink, PLink } = helpParts(TAB);                     // (the shared components, with the address of this guide)
+export { Ui, GLink, PLink };
 
 // ------------------------------------------------------------------------------------------------------------------------------- styles of the pictures (theme variables only)
 export const T = 'font-family:var(--font);font-size:11px;fill:var(--text-3)';

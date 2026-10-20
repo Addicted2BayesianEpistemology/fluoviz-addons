@@ -223,6 +223,6 @@ def test_the_server_side_never_imports_torch():
         "assert 'torch' not in sys.modules, 'torch was imported'\n"
         "print('ok')\n")
     env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join([str(root), str(pathlib.Path(fluoviz.__file__).resolve().parents[1]), str(pathlib.Path(__file__).resolve().parent)])
+    env["PYTHONPATH"] = os.pathsep.join([str(root), str(root.parent / "common"), str(pathlib.Path(fluoviz.__file__).resolve().parents[1]), str(pathlib.Path(__file__).resolve().parent)])
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=300)
     assert r.returncode == 0 and "ok" in r.stdout, r.stderr[-2000:]

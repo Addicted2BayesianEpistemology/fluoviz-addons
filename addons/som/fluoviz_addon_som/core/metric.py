@@ -20,17 +20,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from fluoviz_addon_common.serial import allow as _serial_allow
 
 from .spec import METRIC_WORDS, SomError
-
-
-def _serial_allow(cls):
-    try:
-        from fluoviz.analysis.frozen import serial
-        serial.allow(cls)
-    except Exception:                                                  # noqa: BLE001
-        pass
-    return cls
 
 
 @_serial_allow

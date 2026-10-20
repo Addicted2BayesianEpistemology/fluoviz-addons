@@ -33,8 +33,9 @@ from pathlib import Path
 import numpy as np
 
 ADDON = Path(__file__).resolve().parents[1]
-if str(ADDON) not in sys.path:
-    sys.path.insert(0, str(ADDON))
+for _p in (ADDON, ADDON.parent / "common"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 EM = np.arange(290.0, 571.0, 10.0)                        # emission (nm): 29 values
 EX = np.arange(240.0, 451.0, 15.0)                        # excitation (nm): 15 values

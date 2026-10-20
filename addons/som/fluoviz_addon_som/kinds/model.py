@@ -16,6 +16,7 @@ import numpy as np
 from fluoviz.analysis.frozen import FrozenError
 from fluoviz.analysis.frozen.kinds import _decomp as D
 from fluoviz.analysis.frozen.kinds.fpca import FrozenElement, clean_absorbance
+from fluoviz_addon_common.kinds import check_grid as _check_grid
 
 from ..core import fitting
 from ..core import som as S
@@ -171,9 +172,3 @@ class SomModel(MapView):
 
     def embed(self, name: str, F: np.ndarray) -> np.ndarray:
         return self.block(name).domain.embed(F)
-
-
-def _check_grid(fe: FrozenElement, grid, what: str) -> None:
-    for a, g in zip(fe.axes, grid):
-        if g is None or np.asarray(g).shape != np.asarray(a).shape or not np.allclose(np.asarray(g, float), np.asarray(a, float), rtol=0, atol=1e-6):
-            raise FrozenError(f"The {what} of the samples is not on the wavelength grid of the model. Apply the model through its own data recipe, which puts the samples on the model's grid.")

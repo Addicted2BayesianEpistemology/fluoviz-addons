@@ -30,7 +30,7 @@ Two-level clustering of the prototypes (`cluster_scores` / `choose_k` of FluoViz
 `som_unit, som_row, som_col, som_x, som_y, som_qe, som_qe_rel, som_qe_rmse (one block) | som_qe_rmse_<block>, som_cluster, som_umatrix, missing_part, heldout_qe (result only), flag, status`.  Saved kind `som`: frozen map, metric, frame, clusters, reference (training positions, QEs, out-of-fold QEs, limits).  Status `unusable` (a variable missing / coverage below 0.8), `outside` (QE above the 95 / 99 % limit), `uncertain` (the best unit is empty).
 
 ## 8. API, page, tests
-API: `/api/addon/som/` — see `docs/api.md`.  Page: nine steps (`docs/ui.md`).  Tests: `tests/` (run with FLUOVIZ_ADDONS_DEV pointing at this folder).
+API: `/api/addon/som/` — see `docs/api.md`.  Page: nine steps (`docs/ui.md`).  Tests: `tests/` (run with FLUOVIZ_ADDONS_DEV pointing at this folder and at the shared add-on `addons/common`; the tests do it themselves).
 
 ## 9. Decisions where the brief left a choice
 * The fit is an ordinary FluoViz job (seconds); no history route and no separate process.
@@ -41,5 +41,12 @@ API: `/api/addon/som/` — see `docs/api.md`.  Page: nine steps (`docs/ui.md`). 
 
 ## 10–11. (Layout, distribution) as in the brief, sections 13–14.
 
-## 12. Modelled on the autoencoders add-on (duplicated, to move into FluoViz later)
-`core/data.py` (blocks, frame, gaps weights) ← `core/data.py`; `server/request.py`, `server/prep.py`, `server/results.py` ← the same names; `kinds/freeze.py`, `kinds/stats.py` ← the same names; `web/components/SomStepsReuse.js` ← `AeStepsReuse.js`.
+## 12. Shared with the autoencoders add-on (the `common` add-on)
+The map was modelled on the autoencoders add-on, and what the two do the same way lives once, in the add-on `common` (`addons/common`, a library add-on that FluoViz installs with either of them; this add-on names it in `requires_addons`):
+
+* `core/data.py`: the request's basis / smoothing / gaps settings, `variables_from_arrays`, the pixel and Gaussian-process pieces of the blocks (`fluoviz_addon_common.functional`), `serial.allow`;
+* `server/prep.py`, `server/results.py`, `server/router.py`: the project's data as functional variables, the cache of the prepared data, finding a result and its model, `num_query` (`project_data`, `results`, `routes`);
+* `kinds/freeze.py`, `kinds/stats.py`, `kinds/__init__.py`, `kinds/model.py`: freezing and reading back a model, the log-scale limit, registering the kind, the grid check (`freeze`, `limits`, `kinds`);
+* `web/components/SomCommon.js`, `web/help/parts.js`: the number card, the verdict, the titled block, the wording helpers and the guide's links (`/addon-web/common/web/*.js`).
+
+What stayed in the add-on is what differs: the blocks and the frame of a map (`SomFrame`, `Metric`: classes that saved models record by module, so they cannot move), the request, the model, the steps of the page and the guide.  `web/components/SomStepsReuse.js` is still a sibling of `AeStepsReuse.js` (the same wrappers with different words).  `docs/README.md` of `common` lists every shared module.

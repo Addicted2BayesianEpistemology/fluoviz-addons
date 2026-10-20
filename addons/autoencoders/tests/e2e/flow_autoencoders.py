@@ -3,7 +3,7 @@
     <python-with-playwright> tests/e2e/flow_autoencoders.py [--dark] [--shots] [--keep-going] [--only=advanced | --only=nonlinear | --only=gaps]
 
 What it does: starts a PRIVATE FluoViz (own temporary workspace and runtime folder, listening on this computer only) with the add-on loaded in development mode
-(``FLUOVIZ_ADDONS_DEV=<this add-on>``), opens the example data and goes through the page: the sidebar entry and its badge, the nine steps, the functional switch, the
+(``FLUOVIZ_ADDONS_DEV=<this add-on>:<the shared add-on>``), opens the example data and goes through the page: the sidebar entry and its badge, the nine steps, the functional switch, the
 network settings, **Run with the recommended settings**, every tab of the results and of the checks, the tools (traversals, hover cards, interpolation, unusual samples),
 the tab **Nonlinear effects** (its four sections, typed and clicked features, curves of single samples, ten codes, one code, a network with absorbance, a reload, excitation across),
 smoothify, a variational autoencoder (generate), both variables together, the advanced training settings, a rectangle cut out of some samples only (the weighting of step 5, the sentence in the Samples tab), cancel, an outdated network and **Train again with the same settings**, the use buttons
@@ -1494,7 +1494,7 @@ def main() -> int:
     if os.environ.get("FLUOVIZ_SHOTS"):
         browse.SHOTS = Path(os.environ["FLUOVIZ_SHOTS"])
     rt = tempfile.mkdtemp(prefix="ae-flow-runtime-")
-    env = {"FLUOVIZ_ADDONS_DEV": str(ADDON), "FLUOVIZ_RUNTIME": rt}
+    env = {"FLUOVIZ_ADDONS_DEV": os.pathsep.join([str(ADDON), str(ADDON.parent / "common")]), "FLUOVIZ_RUNTIME": rt}
     if os.environ.get("FLUOVIZ_TEST_ENV"):          # a second conda environment that already has PyTorch (a development copy): the server and its training worker run from it
         te = os.environ["FLUOVIZ_TEST_ENV"]
         env.update({"PATH": f"{te}/bin:{os.environ['PATH']}", "R_HOME": f"{te}/lib/R"})

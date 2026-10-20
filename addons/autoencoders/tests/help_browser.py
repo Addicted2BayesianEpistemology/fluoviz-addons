@@ -2,7 +2,7 @@
 
     <python-with-playwright> tests/help_browser.py --fluoviz <FluoViz folder> [--shots DIR] [--json]
 
-Starts a PRIVATE server of FluoViz (own workspace, this computer only: ``tests/e2e/browse.py: server``) with this add-on loaded in place (``FLUOVIZ_ADDONS_DEV``), opens every page of the tab
+Starts a PRIVATE server of FluoViz (own workspace, this computer only: ``tests/e2e/browse.py: server``) with this add-on loaded in place (``FLUOVIZ_ADDONS_DEV``, with the shared add-on), opens every page of the tab
 ``#/help?tab=addon:autoencoders:autoencoders`` in the light and in the dark theme at 1300 px and at 600 px and checks: the tab is on the Help page, no console error, no ``{{`` / ``undefined`` /
 ``NaN`` in the text, no horizontal scroll, every picture is drawn inside the page and no text of a picture leaves it, every link of the guide leads to a page that exists.  Screenshots (``--shots``) go to
 the given folder.  The result is printed as JSON (``--json``); the exit code is 0 when there are no problems.  Chrome needs a short temporary folder: run it with ``TMPDIR=/tmp``.
@@ -134,7 +134,7 @@ def free_port() -> int:
 def run(shots: Path | None) -> dict:
     problems: list[str] = []
     report: dict = {"pages": {}, "links": 0, "figures": {}}
-    with server(port=free_port(), env={"FLUOVIZ_ADDONS_DEV": str(ADDON)}) as base:
+    with server(port=free_port(), env={"FLUOVIZ_ADDONS_DEV": os.pathsep.join([str(ADDON), str(ADDON.parent / "common")])}) as base:
         for dark in (False, True):
             with browser(base, width=1300, height=900, dark=dark) as page:
                 goto(page, f"/help?tab={TAB}&topic=what", wait=1.5)

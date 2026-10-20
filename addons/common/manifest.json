@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "common",
+  "name": "Shared code of the model add-ons",
+  "version": "1.0.0",
+  "summary": "Code that the Autoencoders and the Self-organising map add-ons share. It has no page of its own and is installed and removed together with them.",
+  "description": "Shared Python and browser code (reading the project's data as functions, the limits of the checks, saving and reopening models, the small pieces of the pages and of the guides) that the add-ons Autoencoders and Self-organising map both use, so that it exists once and is updated once. You never install it yourself: it is added when you install the first add-on that needs it and removed with the last one. No extra libraries are downloaded.",
+  "requires_fluoviz": ">=1.1.0,<2",
+  "library": true,
+  "platforms": ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64"],
+  "python_package": "fluoviz_addon_common",
+  "entry": "fluoviz_addon_common:register",
+  "conda": {"all": []},
+  "extra_download_mb": 0,
+  "libraries_in_server": true,
+  "provides": {"nav": [], "help_tabs": [], "result_kinds": [], "saved_kinds": []},
+  "homepage": ""
+}

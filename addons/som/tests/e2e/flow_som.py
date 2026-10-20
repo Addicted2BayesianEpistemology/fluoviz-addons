@@ -19,7 +19,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ADDON = HERE.parents[1]
-sys.path[:0] = [str(HERE), str(ADDON / "tests"), str(ADDON)]
+sys.path[:0] = [str(HERE), str(ADDON / "tests"), str(ADDON), str(ADDON.parent / "common")]
 
 import serve_for_browser as SB          # noqa: E402
 from cdp import Chrome, free_port        # noqa: E402

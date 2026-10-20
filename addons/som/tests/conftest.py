@@ -3,6 +3,7 @@ import pathlib
 import sys
 
 ADDON = pathlib.Path(__file__).resolve().parents[1]
-for p in (ADDON, ADDON / "tests"):
+COMMON = ADDON.parent / "common"                      # the shared add-on (``fluoviz_addon_common``): the package is not installed in the test environment either
+for p in (ADDON, ADDON / "tests", COMMON):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))

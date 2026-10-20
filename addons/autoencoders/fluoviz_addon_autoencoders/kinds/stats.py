@@ -7,9 +7,15 @@ from __future__ import annotations
 import numpy as np
 from scipy import stats as sps
 
-LEVELS = ("95", "99")
-Z = {"95": float(sps.norm.ppf(0.95)), "99": float(sps.norm.ppf(0.99))}
-MIN_LOG_SPREAD = 0.4                 # the log-errors of ordinary samples are never less spread than this (a chi-square with a few degrees of freedom has more): guards against a tiny limit from few samples
+# the limit of the reconstruction error is computed by the ``common`` add-on (log scale, median plus a robust spread: ``fluoviz_addon_common.limits``)
+from fluoviz_addon_common.limits import LEVELS, MIN_LOG_SPREAD, Z, LimitWords, log_limits  # noqa: E402,F401  (LEVELS, Z and MIN_LOG_SPREAD are part of this module's interface)
+
+WORDS = LimitWords(
+    too_few="There are too few samples to set a limit for the reconstruction error.",
+    held_out=("The limit is the 99 % point of the reconstruction errors of {n} samples the network was not trained on (typical error {typical:.3g}); "
+              "about 1 ordinary new sample in 100 is above it."),
+    training=("Too few samples were held out to set the limit from them, so it is taken from the errors of the training samples and doubled; "
+              "it is a rough guide until the model has been applied to more samples."))
 
 
 # ----------------------------------------------------------------------------- the reconstruction error limit
@@ -21,29 +27,7 @@ def error_limits(errors, fallback=None) -> dict:
     from ``fallback`` (the errors of the training samples, which are optimistic) widened by a factor of 2 and the result says so (``source``).
 
     Returns ``{"95": float, "99": float, "n": int, "median": float, "spread": float, "source": "held-out" | "training", "words": str}``."""
-    v = np.asarray(errors, float)
-    v = v[np.isfinite(v) & (v > 0)]
-    source = "held-out"
-    widen = 1.0
-    if v.size < 3:
-        fb = np.asarray(fallback if fallback is not None else [], float)
-        fb = fb[np.isfinite(fb) & (fb > 0)]
-        if fb.size < 3:
-            return {"95": float("nan"), "99": float("nan"), "n": int(v.size), "median": float("nan"), "spread": float("nan"), "source": "none",
-                    "words": "There are too few samples to set a limit for the reconstruction error."}
-        v, source, widen = fb, "training", 2.0
-    lv = np.log(v)
-    med = float(np.median(lv))
-    spread = max(1.4826 * float(np.median(np.abs(lv - med))), MIN_LOG_SPREAD)
-    out = {lev: float(widen * np.exp(med + Z[lev] * spread)) for lev in LEVELS}
-    out.update({"n": int(v.size), "median": float(np.exp(med)), "spread": spread, "source": source})
-    if source == "held-out":
-        out["words"] = (f"The limit is the 99 % point of the reconstruction errors of {v.size} samples the network was not trained on (typical error {np.exp(med):.3g}); "
-                        "about 1 ordinary new sample in 100 is above it.")
-    else:
-        out["words"] = ("Too few samples were held out to set the limit from them, so it is taken from the errors of the training samples and doubled; "
-                        "it is a rough guide until the model has been applied to more samples.")
-    return out
+    return log_limits(errors, fallback, squared=False, words=WORDS)
 
 
 # ----------------------------------------------------------------------------- how typical is a code?

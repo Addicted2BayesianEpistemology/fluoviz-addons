@@ -13,29 +13,22 @@ NaN = not observed) and the ``input`` of a request (the Functional PCA vocabular
   training sample; the saved model keeps it).
 
 Nothing of FluoViz is copied: the domains, bases, smoothing and the freezing of a representation are those of ``fluoviz.analysis.fpca`` and ``fluoviz.analysis.frozen.kinds.fpca``.
-Modelled on the ``core/data.py`` of the autoencoders add-on (SPEC section 12).
+The pieces it shares with the autoencoders add-on are in the ``common`` add-on (SPEC section 12).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 import numpy as np
+from fluoviz_addon_common import functional as F
+from fluoviz_addon_common.functional import variables_from_arrays  # noqa: F401  (part of this module's interface)
+from fluoviz_addon_common.serial import allow as _serial_allow
 
 from .spec import SomError
 
-PIXELS = "pixels"
+PIXELS = F.PIXELS
 VARIABLES = "variables"
 NAMES = ("fluorescence", "absorbance")
-
-
-def _serial_allow(cls):
-    """Let the dataclass be stored in a saved model (``fluoviz.analysis.frozen.serial``); nothing happens when FluoViz is not importable."""
-    try:
-        from fluoviz.analysis.frozen import serial
-        serial.allow(cls)
-    except Exception:                                                  # noqa: BLE001 - tests of the numerics run without the saved-model machinery
-        pass
-    return cls
 
 
 # ----------------------------------------------------------------------------- functions <-> coordinates
@@ -299,30 +292,17 @@ class Prepared:
 
 # ----------------------------------------------------------------------------- reading the request
 def _basis_spec(inp: dict, name: str) -> dict:
-    sub = inp.get(name)
-    if isinstance(sub, dict) and isinstance(sub.get("basis"), dict):
-        return dict(sub["basis"])
-    b = inp.get("basis")
-    if isinstance(b, dict):
-        if name in b and isinstance(b[name], dict):
-            return dict(b[name])
-        if "kind" in b:
-            return dict(b)
-    if inp.get("kind") == PIXELS:
-        return {"kind": PIXELS}
-    return {}
+    b = F.lookup_basis(inp, name)
+    if b is not None:
+        return b
+    return {"kind": PIXELS} if inp.get("kind") == PIXELS else {}
 
 
-def _gaps_spec(inp: dict, name: str) -> str:
-    sub = inp.get(name)
-    return "plain" if isinstance(sub, dict) and sub.get("gaps") == "plain" else "auto"
+_gaps_spec = F.gaps_spec
 
 
 def _smoothing_spec(inp: dict, name: str) -> dict:
-    sub = inp.get(name)
-    if isinstance(sub, dict) and isinstance(sub.get("smoothing"), dict):
-        return dict(sub["smoothing"])
-    return {}
+    return F.smoothing_spec(inp, name, general=False)
 
 
 def _user_weights(inp: dict, names: list[str]) -> dict:
@@ -347,50 +327,21 @@ def _user_weights(inp: dict, names: list[str]) -> dict:
 
 
 # ----------------------------------------------------------------------------- the blocks
+NOTHING = "there is nothing for a map to show."
+
+
 def _pixel_block(v):
-    from fluoviz.analysis.frozen.kinds.fpca import FrozenElement
-    dom = v.domain
-    Y = np.asarray(v.Y, float)
-    n, m = Y.shape
-    with np.errstate(invalid="ignore"):
-        ybar = np.nanmean(Y, axis=0)
-    if np.isnan(ybar).any():
-        raise SomError(f"Some points of the {v.name} domain are not measured in any sample: raise the share of samples that must have a point, or mask them.")
-    Rr = Y - ybar
-    obs = np.isfinite(Rr)
-    w = np.asarray(dom.w, float)
-    cov = (obs * w).sum(axis=1)
-    if (cov <= 0).any():
-        raise SomError(f"A sample has no measured {v.name} value inside the domain.")
-    ss = np.where(obs, Rr, 0.0) ** 2 @ w / cov                        # squared L2 norm of every centred sample (average over the part of the domain that was measured)
-    msq = float(np.mean(ss))
-    if not np.isfinite(msq) or msq <= 0:
-        raise SomError(f"The {v.name} of the samples are all the same: there is nothing for a map to show.")
+    Y, ybar, Rr, obs, w, msq = F.centred_pixels(v, SomError, NOTHING)
     x = np.where(obs, Rr, np.nan) * np.sqrt(w)
-    fe = FrozenElement(name=v.name, kind=dom.kind, units=str(v.units or ""), transform=str(v.transform),
-                       asinh_scale=float(v.info.get("asinh_scale", float("nan"))) if v.transform == "asinh" and dom.kind == "surface" else float("nan"),
-                       axis_names=list(dom.names), axes=[np.asarray(a, float) for a in dom.axes], obs=np.asarray(dom.obs, bool), w=w, measure=float(dom.measure),
-                       basis={"kind": PIXELS, "K": int(m)}, B=None, prior_lam=None, smoothing={"criterion": "none", "gamma": "none", "sigma2": float("nan"), "sigma_f2": float("nan")},
-                       ybar=ybar, cbar=ybar.copy(), offset=np.zeros(m), ife=None, n_pixels_grid=int(np.prod(dom.shape)))
-    return x, msq, fe, ybar, Y
+    return x, msq, F.pixel_element(v, ybar), ybar, Y
 
 
 def _functional_block(el, v, ife):
     from fluoviz.analysis.frozen.kinds.fpca import element_freeze
-    rep = el.rep
     Z = np.asarray(el.Z, float)
-    msq = float(np.mean((Z ** 2).sum(axis=1)))                          # total variance of the variable: mean squared L2 norm of the centred samples
-    if not np.isfinite(msq) or msq <= 0:
-        raise SomError(f"The {v.name} functions are all the same: there is nothing for a map to show.")
+    msq = F.total_variance(Z, v.name, SomError, NOTHING)                # total variance of the variable: mean squared L2 norm of the centred samples
     notes: list = []
-    prior = None
-    if rep.kind == "gp":
-        lam = np.asarray(rep.prior_lam, float)
-        sf2 = float(el.fit.sigma_f2)
-        if not np.isfinite(sf2) or sf2 <= 0:
-            sf2 = float(np.var(Z, axis=0, ddof=1).sum() / lam.sum())
-            notes.append("The amplitude of the Gaussian process was not estimated by maximum likelihood: it was taken from the variance of the data.")
-        prior = np.sqrt(sf2 * lam)
+    prior = F.gp_prior_scale(el, Z, notes) if el.rep.kind == "gp" else None
     fe = element_freeze(v.name, el, el, v, ife if v.name == "absorbance" else None)
     return Z, msq, fe, prior, notes
 
@@ -499,18 +450,4 @@ def prepare_table(columns: dict, ids: list, standardize: bool = True, seed: int 
     return Prepared(list(ids), [blk], R, None, np.ones(P), {"variables": ["variables"], "keys": names, "standardize": bool(standardize), "weights": "none"}, [], [], [], int(seed), VARIABLES)
 
 
-# ----------------------------------------------------------------------------- convenience: from plain arrays (tests, scripts)
-def variables_from_arrays(X=None, ex=None, em=None, ids=None, A=None, wl=None, abs_ids=None, input: dict | None = None, min_coverage: float = 0.5, units: str = "") -> list:
-    """``fluorescence`` / ``absorbance`` ``Variable`` objects from arrays: ``X[sample, emission, excitation]`` (NaN = masked) and ``A[sample, wavelength]``."""
-    from fluoviz.analysis.fpca.variables import absorbance_variable, fluorescence_variable
-    inp = dict(input or {})
-    out = []
-    if X is not None:
-        sub = inp.get("fluorescence") if isinstance(inp.get("fluorescence"), dict) else {}
-        ids = list(ids) if ids is not None else [f"S{i + 1:02d}" for i in range(np.asarray(X).shape[0])]
-        out.append(fluorescence_variable(X, ex, em, ids, transform=sub.get("transform", "none"), min_coverage=sub.get("min_coverage", min_coverage), units=units, complete=False))
-    if A is not None:
-        sub = inp.get("absorbance") if isinstance(inp.get("absorbance"), dict) else {}
-        aids = list(abs_ids) if abs_ids is not None else (list(ids) if ids is not None else [f"S{i + 1:02d}" for i in range(np.asarray(A).shape[0])])
-        out.append(absorbance_variable(wl, A, aids, transform=sub.get("transform", "none"), units="absorbance"))
-    return out
+# (``variables_from_arrays``, the convenience for tests and scripts, is the shared one imported at the top)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 from fastapi.responses import Response
+from fluoviz_addon_common.routes import num_query as _num_query
 
 from fluoviz.analysis.fpca.variables import DEFAULT_MIN_COVERAGE
 from fluoviz.server.analysis import project, result_public, start_job
@@ -34,16 +35,6 @@ def _bool(v, what: str) -> bool:
     if isinstance(v, bool):
         return v
     raise HTTPException(400, f"'{what}' must be true or false.")
-
-
-def _num_query(v, what: str, lo: float, hi: float) -> float:
-    try:
-        x = float(v)
-    except (TypeError, ValueError):
-        raise HTTPException(400, f"'{what}' must be a number.") from None
-    if not lo <= x <= hi:
-        raise HTTPException(400, f"'{what}' must be between {lo:g} and {hi:g}.")
-    return x
 
 
 # ----------------------------------------------------------------------------- advice and checks

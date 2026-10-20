@@ -75,7 +75,7 @@ def make_app(workspace: Path, loader: bool = True):
     forget_kind()
     saved = os.environ.get("FLUOVIZ_ADDONS_DEV")
     if loader:
-        os.environ["FLUOVIZ_ADDONS_DEV"] = str(ADDON)
+        os.environ["FLUOVIZ_ADDONS_DEV"] = os.pathsep.join([str(ADDON), str(ADDON.parent / "common")])           # (the shared add-on is loaded too: this one requires it)
     else:
         os.environ.pop("FLUOVIZ_ADDONS_DEV", None)
     try:

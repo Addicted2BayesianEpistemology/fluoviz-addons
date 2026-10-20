@@ -1,9 +1,10 @@
 // Small pieces shared by the steps of the Autoencoders page: a number card, a verdict notice, a titled block, a strip of EEM pictures drawn as ONE chart (so that it has the
 // .rds / .fig buttons, a shared colour scale and a table view), a histogram, and the plain-wording helpers.
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { computed } from 'vue';
 import { Icon } from '/static/js/icons.js';
 import { PlotlyChart, ChartCard } from '/static/js/plot.js';
-import { HelpTip } from '/static/js/components/Common.js';
+import { pct, nTxt, plural, listWords, useNarrow } from '/addon-web/common/web/words.js';
+import { makeParts } from '/addon-web/common/web/parts.js';
 import { tokens, themeState, withAlpha, sequentialScale, divergingScale } from '/static/js/theme.js';
 import { prefs } from '/static/js/prefs.js';
 import { toRows, autoRange } from '/static/js/eem.js';
@@ -12,10 +13,7 @@ import { fmt } from '/static/js/util.js';
 export { fmt, Icon };
 
 // ---------------------------------------------------------------- plain wording
-export const pct = (x, d = 1) => (Number.isFinite(x) ? `${(100 * x).toFixed(d)} %` : '–');
-export const nTxt = (n) => (Number.isFinite(n) ? String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') : '–');
-export const plural = (n, one, many) => `${nTxt(n)} ${n === 1 ? one : (many || `${one}s`)}`;
-export const listWords = (a) => (a.length <= 1 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
+export { pct, nTxt, plural, listWords, useNarrow };
 /** The units of the answers: a text, or {fluorescence: 'Raman units (RU)', absorbance: ...} (one entry per variable). */
 export const unitsOf = (u, name = 'fluorescence') => (u && typeof u === 'object' ? (u[name] ?? Object.values(u)[0] ?? '') : (u || ''));
 /** 'Raman units (RU)' -> 'RU' */
@@ -24,44 +22,11 @@ export const sdText = (v) => (v === 0 ? 'mean' : `${v > 0 ? '+' : '−'}${Math.a
 /** The words of the status of a sample for the chips. */
 export const STATUS_LABEL = { ok: 'Fits the network', outside: 'Poorly described by the network', unusable: 'Cannot be used' };
 
-/** True while the window is narrow (phones, split screens): the strips use fewer pictures per row. */
-export function useNarrow(px = 760) {
-  const narrow = ref(typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(`(max-width: ${px}px)`).matches : false);
-  let mq = null;
-  const on = (e) => { narrow.value = e.matches; };
-  onMounted(() => { if (window.matchMedia) { mq = window.matchMedia(`(max-width: ${px}px)`); narrow.value = mq.matches; mq.addEventListener('change', on); } });
-  onBeforeUnmount(() => { if (mq) mq.removeEventListener('change', on); });
-  return narrow;
-}
-
-// ---------------------------------------------------------------- one number
-export const AeStat = {
-  name: 'AeStat',
-  props: { label: String, value: [String, Number], sub: { type: String, default: '' }, level: { type: String, default: '' }, help: { type: String, default: '' } },
-  components: { HelpTip },
-  template: `
-  <div class="fp-stat ae-stat" :data-level="level">
-    <span class="l">{{ label }}<HelpTip v-if="help" :text="help"/></span>
-    <span class="v" :class="level">{{ value }}</span>
-    <span class="s" v-if="sub">{{ sub }}</span>
-  </div>`,
-};
-
-/** A verdict in words: the server's sentence (or the page's), with the colour of how good it is.  level: good | info | warning | critical */
-export const AeVerdict = {
-  name: 'AeVerdict',
-  components: { Icon },
-  props: { level: { type: String, default: 'info' }, title: { type: String, default: '' } },
-  template: `<div class="callout" :class="level === 'good' ? 'good' : level === 'warning' ? 'warning' : level === 'critical' ? 'critical' : 'info'" data-ae-verdict :data-level="level"><Icon :name="level === 'good' ? 'check-circle' : level === 'info' ? 'info-circle' : 'exclamation-triangle'"/><div class="grow"><b v-if="title">{{ title }} </b><slot/></div></div>`,
-};
-
-/** A block of a step: a heading, one sentence about what it is, then the controls. */
-export const AeSection = {
-  name: 'AeSection',
-  components: { HelpTip },
-  props: { title: String, sentence: { type: String, default: '' }, help: { type: String, default: '' } },
-  template: `<section class="ae-section"><h3 class="fp-h3">{{ title }}<HelpTip v-if="help" :text="help"/></h3><p class="fp-note" v-if="sentence">{{ sentence }}</p><slot/></section>`,
-};
+// ---------------------------------------------------------------- one number, a verdict, a titled block (the shared components, with this page's prefix)
+const parts = makeParts({ name: 'Ae', prefix: 'ae' });
+export const AeStat = parts.Stat;
+export const AeVerdict = parts.Verdict;
+export const AeSection = parts.Section;
 
 // ---------------------------------------------------------------- a strip (or a small grid) of EEM pictures as ONE chart
 // The pictures follow Settings > Appearance > Axes of fluorescence maps of FluoViz like every EEM picture: emission across and excitation up, or the other way round.

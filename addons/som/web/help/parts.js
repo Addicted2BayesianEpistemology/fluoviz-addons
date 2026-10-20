@@ -2,27 +2,13 @@
 // Nothing here is imported from FluoViz except the shared components with absolute URLs (the icons, the Callout box, the router), which are the stable interface for add-ons.
 import { Icon } from '/static/js/icons.js';
 import { Callout } from '/static/js/components/Common.js';
-import { go } from '/static/js/router.js';
+import { helpParts } from '/addon-web/common/web/help.js';
 
 /** The Help tab of this guide (the address is  #/help?tab=addon:som:som&topic=<page>). */
 export const TAB = 'addon:som:som';
 
-/** A word of the interface (a button, a field, a step, a tab).  The test of the guide looks for every one of them in docs/ui.md. */
-export const Ui = { name: 'Ui', template: `<i class="ui"><slot/></i>` };
-
-export const GLink = {
-  name: 'GLink',
-  props: { to: { type: String, required: true }, tab: { type: String, default: TAB } },
-  setup(props) { return { open: () => go('/help', { tab: props.tab, topic: props.to }) }; },
-  template: `<a class="g-link" href="#" @click.prevent="open"><slot/></a>`,
-};
-
-export const PLink = {
-  name: 'PLink',
-  props: { path: { type: String, required: true }, query: { type: Object, default: null } },
-  setup(props) { return { open: () => go(props.path, props.query || undefined) }; },
-  template: `<a class="g-link" href="#" @click.prevent="open" :data-plink="path"><slot/></a>`,
-};
+const { Ui, GLink, PLink } = helpParts(TAB);                     // (the shared components, with the address of this guide)
+export { Ui, GLink, PLink };
 
 const T = 'font-family:var(--font);font-size:11px;fill:var(--text-3)';
 const TB = 'font-family:var(--font);font-size:12px;font-weight:700;fill:var(--text)';

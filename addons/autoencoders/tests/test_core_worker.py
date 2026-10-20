@@ -102,6 +102,6 @@ def test_the_process_that_waits_never_imports_torch():
     code = ("import sys\nfrom fluoviz_addon_autoencoders.core import worker as W\n"
             "out = W.run_in_worker('selftest', {'seconds': 0.1})\n"
             "assert 'torch' not in sys.modules and out['torch_loaded'] is False\nprint('ok')\n")
-    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(root), str(pathlib.Path(fluoviz.__file__).resolve().parents[1])]))
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(root), str(root.parent / "common"), str(pathlib.Path(fluoviz.__file__).resolve().parents[1])]))
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=120)
     assert r.returncode == 0 and "ok" in r.stdout, r.stderr[-1500:]

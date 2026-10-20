@@ -55,4 +55,4 @@ Your **projects are not touched**. The page and the guide disappear from the men
 
 An autoencoder is far more flexible than a few dozen EEMs can support. Look at the numbers for held-out samples and at the comparison with PCA before anything else, never use the *synthetic* samples a variational autoencoder draws as if they were measurements, and give a code a name only after you have looked at what it does. The guide says how.
 
-Version 1.0.1.
+Version 1.1.0.

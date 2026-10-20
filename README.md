@@ -5,8 +5,9 @@ Optional tools for FluoViz (an explorer for fluorescence excitation-emission mat
 | add-on | what it adds | extra libraries |
 |---|---|---|
 | `autoencoders` | autoencoders (AE) and variational autoencoders (VAE) for EEMs and absorbance, also **functional** versions on the coefficients of the Functional-PCA bases with a `smoothify` penalty; latent-space tools, tools that show which nonlinear trend each code fits, anomaly detection, saved models; advanced training settings; samples that lack part of the domain are handled | PyTorch (CPU), about 130 MB |
+| `som` | self-organising maps (SOM) of EEMs and absorbance, on the pixels or on the coefficients of the Functional-PCA bases (functional version), with a choice of distance (plain or regularised Mahalanobis), prototypes and planes on the grid, groups, held-out checks, saved models | none (numpy and scipy, already in FluoViz) |
 
-Specification of the first add-on: [`addons/autoencoders/SPEC.md`](addons/autoencoders/SPEC.md); user note: [`docs/README_user.md`](addons/autoencoders/docs/README_user.md).  The framework that loads add-ons (manifest, index, the `register(api)` hook) is documented in FluoViz itself (`docs/modules/addons.md`, `docs/modules/addons_core.md`).
+Specification of the first add-on: [`addons/autoencoders/SPEC.md`](addons/autoencoders/SPEC.md); user note: [`docs/README_user.md`](addons/autoencoders/docs/README_user.md).  Second add-on: [`addons/som/SPEC.md`](addons/som/SPEC.md) (the long brief is [`PROMPT.md`](addons/som/PROMPT.md)), user note [`docs/README_user.md`](addons/som/docs/README_user.md).  The framework that loads add-ons (manifest, index, the `register(api)` hook) is documented in FluoViz itself (`docs/modules/addons.md`, `docs/modules/addons_core.md`).
 
 ## Layout
 

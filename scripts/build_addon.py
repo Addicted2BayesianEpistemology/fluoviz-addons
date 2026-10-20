@@ -22,13 +22,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SKIP_DIRS = {"__pycache__", "tests", ".pytest_cache", ".git", "node_modules"}
 SKIP_SUFFIXES = {".pyc", ".pyo", ".orig", ".rej", ".swp", ".DS_Store"}
+SKIP_FILES = {"PROMPT.md"}                       # the long implementation briefs stay in the repository, they are not part of the add-on
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)                  # the same files give the same zip (and the same sha256)
 
 
 def files_of(folder: Path):
     for p in sorted(folder.rglob("*")):
         rel = p.relative_to(folder)
-        if p.is_dir() or any(part in SKIP_DIRS for part in rel.parts) or p.suffix in SKIP_SUFFIXES or p.name in SKIP_SUFFIXES:
+        if p.is_dir() or any(part in SKIP_DIRS for part in rel.parts) or p.suffix in SKIP_SUFFIXES or p.name in SKIP_SUFFIXES or (len(rel.parts) == 1 and p.name in SKIP_FILES):
             continue
         yield p, rel
 

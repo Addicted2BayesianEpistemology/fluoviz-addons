@@ -1,0 +1,49 @@
+/* The Self-organising map page (add-on). Colours only from FluoViz tokens; the layout follows the Functional PCA page (page-fpca.css) and works at 600 px. */
+.som-page .som-other { margin-top: 12px; }
+.som-page .som-stat .v.ok { color: var(--st-good); }
+.som-page .som-stat .v.bad { color: var(--st-critical); }
+.som-section { margin: 0 0 18px; }
+.som-section .fp-h3 { margin-bottom: 4px; }
+
+/* the map and its hover card */
+.som-map-grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
+.som-map-plot { min-width: 0; }
+.som-hover .som-thumb { width: 100%; }
+.som-grid { width: 100%; }
+@media (max-width: 900px) { .som-map-grid { grid-template-columns: minmax(0, 1fr); } }
+.som-key { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; }
+.som-key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.som-legend { gap: 4px 0; }
+
+/* the grid of prototype pictures (hexagonal maps: odd rows are shifted by half a cell) */
+.som-protos { width: 100%; }
+.som-proto { position: relative; min-width: 0; box-sizing: border-box; padding: 0; margin: 0; background: transparent; border: 0; cursor: pointer; color: var(--text); }
+.som-proto .som-proto-pic { display: block; outline: 2px solid var(--line); outline-offset: -1px; border-radius: 3px; overflow: hidden; background: var(--surface); }
+.som-proto.no-hits .som-proto-pic { outline-style: dashed; opacity: 0.75; }
+.som-proto.sel .som-proto-pic { outline: 3px solid var(--accent); }
+.som-proto .som-proto-n { position: absolute; right: 3px; top: 2px; font-size: 10px; line-height: 1; padding: 1px 3px; border-radius: 3px; background: var(--surface); color: var(--text-2); opacity: 0.9; }
+.som-spark { display: block; width: 100%; height: 34px; }
+.som-unit-pics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.som-unit-pic .eyebrow { margin-bottom: 4px; }
+.som-member { cursor: pointer; }
+
+/* planes, groups, samples */
+.som-planes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.som-plane-pick input { margin-right: 4px; }
+.som-plane-pick.on { border-color: var(--accent); }
+.som-groups-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+@media (max-width: 900px) { .som-groups-grid { grid-template-columns: minmax(0, 1fr); } }
+.som-group-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.som-group-pic canvas { width: 100%; height: auto; }
+.som-samples-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 14px; align-items: start; }
+@media (max-width: 1000px) { .som-samples-grid { grid-template-columns: minmax(0, 1fr); } }
+.som-sample-pics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.som-samples-grid tr.sel td { background: var(--accent-soft, rgba(11, 164, 255, 0.12)); }
+.som-varlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.som-varlist li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.som-page .fp-stats { display: flex; flex-wrap: wrap; gap: 12px; }
+
+/* step 5: the cards of the distances and sizes need room; the facts of the map come first */
+.som-step5 .fp-two { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.som-step5 .fp-two > .col:nth-child(2) { order: -1; }
+.som-step5 .fp-cards { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }

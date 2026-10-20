@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "som",
+  "name": "Self-organising map (SOM)",
+  "version": "1.0.0",
+  "summary": "Self-organising maps of EEMs and absorbance spectra, on the pixels or on the coefficients of a functional basis, with prototypes, component planes, groups, honest checks and saved models.",
+  "description": "Adds the page Self-organising map to the experimental methods. A map lays the samples out on a small grid of units: every unit holds a typical EEM or absorbance spectrum (its prototype), and neighbouring units hold similar ones, so similar samples sit together and gradients run across the map. It works on the fluorescence, on the absorbance or on both together, on the observed pixels or, like the functional PCA, on the coefficients of a smooth basis with a choice of distance (plain, or standardised so that subtle shape differences count as much as the overall intensity). It shows the map (U-matrix, hits, prototype EEMs on the grid, component planes, label maps, trajectories), checks it honestly on samples it was not trained on, groups the units, and publishes the map position of each sample as variables you can plot, cluster and classify. A fitted map can be saved and applied to new samples. No extra libraries are downloaded.",
+  "requires_fluoviz": ">=1.0.0,<2",
+  "platforms": ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64"],
+  "python_package": "fluoviz_addon_som",
+  "entry": "fluoviz_addon_som:register",
+  "conda": {"all": []},
+  "extra_download_mb": 0,
+  "libraries_in_server": true,
+  "provides": {
+    "nav": [
+      {"group": "Experimental methods", "id": "som", "path": "/som", "label": "Self-organising map", "badge": "add-on", "icon": "apps",
+       "title": "Self-organising map (add-on)", "page": "web/page.js", "needsData": true}
+    ],
+    "help_tabs": [{"key": "som", "label": "Self-organising map", "module": "web/help.js"}],
+    "result_kinds": [{"kind": "som", "noun": "map", "saveable": true}],
+    "saved_kinds": ["som"]
+  },
+  "homepage": ""
+}

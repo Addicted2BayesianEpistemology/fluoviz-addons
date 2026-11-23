@@ -37,7 +37,7 @@ export const SomTrajectoriesTab = {
   <div class="col gap-12" data-som-trajectories-tab>
     <p class="fp-note">Put the samples in order (by a date, a time, a treatment stage) and draw, for each group of samples, the path they follow over the map. A hollow circle marks the first sample of a path and a square the last. Short steps mean the samples change little; a long jump means the sample moved to another region of the map.</p>
     <div class="card"><div class="card-body"><div class="row wrap" style="gap:12px 22px;align-items:flex-end">
-      <Field label="Order by" style="width:280px" help="A number or a date: the samples of a path are joined in increasing order of this variable."><VarSelect v-model="T.order" small none-label="Choose a variable …" data-som-traj-order/></Field>
+      <Field label="Order by" style="width:280px" help="A number or a date: the samples of a path are joined in increasing order of this variable."><VarSelect v-model="T.order" small placeholder="Choose a variable …" data-som-traj-order/></Field>
       <Field label="One line per" style="width:280px" help="A category: every value of it gets its own path (for example a site). Nothing: one path for all the samples."><VarSelect v-model="T.group" small :kinds="['category']" none-label="Nothing (one line)" data-som-traj-group/></Field>
       <button type="button" class="btn" data-som-traj-go :disabled="!T.order || (slot && slot.busy)" @click="run"><Icon name="play" size="16"/>Draw the paths</button>
     </div>

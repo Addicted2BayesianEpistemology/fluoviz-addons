@@ -5,12 +5,13 @@ Optional tools for FluoViz (an explorer for fluorescence excitation-emission mat
 | add-on | what it adds | extra libraries |
 |---|---|---|
 | `autoencoders` | autoencoders (AE) and variational autoencoders (VAE) for EEMs and absorbance, also **functional** versions on the coefficients of the Functional-PCA bases with a `smoothify` penalty; latent-space tools, tools that show which nonlinear trend each code fits, anomaly detection, saved models; advanced training settings; samples that lack part of the domain are handled | PyTorch (CPU), about 130 MB |
-| `common` | **shared code** of the two add-ons below (reading the project's data as functions, the limits of the checks, saving and reopening models, the small pieces of their pages and guides). It has no page and is never installed on its own: FluoViz adds it when you install `autoencoders` or `som`, and removes it with the last of them | none |
+| `mblf` | **Bayesian multimodal latent factors** (mblf-python, Ursino, Epifani and Trovò) of EEMs, absorbance spectra and other values, with covariates: shared factors with credible bands, how much of each mode the others predict, predictions of any mode of a sample with the uncertainty split into four parts, every choice of predictors compared held out (coverage, PIT), saved models | none at install; the page prepares a private **Stan engine** once (CmdStan + compiler, about 450 MB, inside the add-on's folder) |
+| `common` | **shared code** of the model add-ons (reading the project's data as functions, the limits of the checks, saving and reopening models, the small pieces of their pages and guides). It has no page and is never installed on its own: FluoViz adds it when you install `autoencoders` or `som`, and removes it with the last of them | none |
 | `som` | self-organising maps (SOM) of EEMs and absorbance, on the pixels or on the coefficients of the Functional-PCA bases (functional version), with a choice of distance (plain or regularised Mahalanobis), prototypes and planes on the grid, groups, held-out checks, saved models | none (numpy and scipy, already in FluoViz) |
 
 The shared add-on [`addons/common`](addons/common/docs/README.md) is a **library add-on** (`"library": true` in its manifest) and the other two name it in `requires_addons`; this is a feature of the FluoViz framework (`docs/modules/addons.md`, "Add-ons that need other add-ons"), so the add-ons here need a FluoViz that has it.
 
-Specification of the first add-on: [`addons/autoencoders/SPEC.md`](addons/autoencoders/SPEC.md); user note: [`docs/README_user.md`](addons/autoencoders/docs/README_user.md).  Second add-on: [`addons/som/SPEC.md`](addons/som/SPEC.md) (the long brief is [`PROMPT.md`](addons/som/PROMPT.md)), user note [`docs/README_user.md`](addons/som/docs/README_user.md).  The framework that loads add-ons (manifest, index, the `register(api)` hook) is documented in FluoViz itself (`docs/modules/addons.md`, `docs/modules/addons_core.md`).
+Specification of the first add-on: [`addons/autoencoders/SPEC.md`](addons/autoencoders/SPEC.md); user note: [`docs/README_user.md`](addons/autoencoders/docs/README_user.md).  Second add-on: [`addons/som/SPEC.md`](addons/som/SPEC.md) (the long brief is [`PROMPT.md`](addons/som/PROMPT.md)), user note [`docs/README_user.md`](addons/som/docs/README_user.md).  Third add-on: [`addons/mblf/SPEC.md`](addons/mblf/SPEC.md), user note [`docs/README_user.md`](addons/mblf/docs/README_user.md), routes [`docs/api.md`](addons/mblf/docs/api.md).  The framework that loads add-ons (manifest, index, the `register(api)` hook) is documented in FluoViz itself (`docs/modules/addons.md`, `docs/modules/addons_core.md`).
 
 ## Layout
 
@@ -53,6 +54,8 @@ FLUOVIZ_ADDONS_DEV=<this repository>/addons bash start.sh
 bash scripts/run_tests.sh <this repository>/addons/autoencoders/tests -q -p no:cacheprovider
 bash scripts/run_tests.sh <this repository>/addons/som/tests -q -p no:cacheprovider
 bash scripts/run_tests.sh <this repository>/addons/common/tests -q -p no:cacheprovider
+# the multimodal latent factor tests that fit a model need a Stan engine (an environment with cmdstan, cmdstanpy, xarray, numpy, scipy); without it they are skipped
+FLUOVIZ_MBLF_ENGINE=<that environment> bash scripts/run_tests.sh <this repository>/addons/mblf/tests -q -p no:cacheprovider
 ```
 
 `FLUOVIZ_ADDONS_DEV` loads the working copy in place (no download, no copy, no libraries installed).  An add-on that needs the shared add-on (`requires_addons`) only starts when the shared add-on is loaded too: name the folder `addons` as above, or list both folders separated by `:` (`;` on Windows).
@@ -60,3 +63,8 @@ bash scripts/run_tests.sh <this repository>/addons/common/tests -q -p no:cachepr
 ### What goes into the shared add-on
 
 Only code that **two add-ons would otherwise copy**, and that does not belong to one add-on's idea (a network, a map): the steps of reading the project's data, of freezing a result as a saved model, of the limits of a check, the pieces of the pages. Classes that are written into saved model files stay in their add-on (a saved file records where its classes live), and the shared add-on keeps its Python and browser interface stable within a major version (`requires_addons: {"common": ">=1.0.0,<2"}`): a change that would break an add-on is a new major version, released together with the add-ons that need it.
+
+## Requests to FluoViz core
+
+* **`VarSelect` with `items`** (like `VarChecklist` has).  The Self-organising map's **Index** picker (step 7, Planes: the fluorescence indices of the *prototypes*, grouped HIX / BIX / peaks …) is a long grouped list of things that are not catalogue variables, so it stays a native `<select>` with `<optgroup>`s.  The searchable panel would serve it well, but `VarSelect` only lists the catalogue; `VarChecklist` already accepts `items`, `VarSelect` does not.
+* (Observation) the add-ons' "Add a variable" fields (a `VarSelect` with a `placeholder` followed by removable chips) close the panel after each choice; adding several variables takes one opening per variable.  `VarChecklist` covers several variables but always shows its list; a "keep open after choosing" option of `VarSelect` would suit these fields.

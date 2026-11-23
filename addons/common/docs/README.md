@@ -1,6 +1,6 @@
 # The shared add-on (`common`)
 
-Code that the add-ons **Autoencoders** and **Self-organising map** both need, so that it exists once.  It is a *library add-on*: `"library": true` in `manifest.json`, no page, no guide, no route, no saved model.  FluoViz installs it together with the first add-on that names it in `requires_addons`, starts it before them (so they can `import fluoviz_addon_common`), updates it when an add-on needs a newer one, and removes it with the last add-on that uses it.  The person never sees an Install button for it: Settings → Add-ons lists it under *Installed* as "Shared code", with the add-ons that use it.
+Code that the add-ons **Autoencoders**, **Self-organising map** and **Multimodal latent factors** need, so that it exists once.  It is a *library add-on*: `"library": true` in `manifest.json`, no page, no guide, no route, no saved model.  FluoViz installs it together with the first add-on that names it in `requires_addons`, starts it before them (so they can `import fluoviz_addon_common`), updates it when an add-on needs a newer one, and removes it with the last add-on that uses it.  The person never sees an Install button for it: Settings → Add-ons lists it under *Installed* as "Shared code", with the add-ons that use it.
 
 The rules of the framework are in FluoViz `docs/modules/addons.md` ("Add-ons that need other add-ons").
 
@@ -8,7 +8,7 @@ The rules of the framework are in FluoViz `docs/modules/addons.md` ("Add-ons tha
 
 | module | what it holds | used by |
 |---|---|---|
-| `serial` | `allow(cls)`: lets a dataclass be stored in a saved model | the data classes of both add-ons |
+| `serial` | `allow(cls)`: lets a dataclass be stored in a saved model | the data classes of the add-ons (`Mode`, `Covariates`, `Draws` of mblf) |
 | `limits` | `log_limits(values, fallback, squared, words)`: the 95 % and 99 % limit of an error or a distance, on the log scale, from samples the model was not trained on | `kinds/stats.py` of both (`error_limits`, `distance_limits`) |
 | `functional` | what a request says about the basis, smoothing and gaps; `variables_from_arrays`; the pixel and Gaussian-process pieces of the data preparation (`centred_pixels`, `pixel_element`, `total_variance`, `gp_prior_scale`) | `core/data.py` of both |
 | `project_data` | the project's data as functional variables (`make_variables`, `abs_matrix`, `ife_of`), the cache of the prepared data (`PreparedCache`), the samples of a result as an `ApplyData` | `server/prep.py` of both |
@@ -44,3 +44,5 @@ The shared add-on keeps its Python and browser interface stable within a major v
 ## Tests
 
 `tests/` (run like those of the other add-ons, see the README of the repository): the limits and the functional helpers against independent formulas, the freezing steps with their refusals, the manifests of all add-ons against the framework's validator, the built zip, and a real installation: installing the map from a built source installs this add-on first, removing the map takes it away.
+
+The multimodal latent factor add-on (`mblf`, 1.0.0) uses `serial`, `functional.pixel_element`, `project_data`, `results`, `freeze`, `kinds` and the three browser files; it needs nothing new from this add-on.

@@ -14,7 +14,7 @@ MAN = json.loads((ADDON / "manifest.json").read_text(encoding="utf-8"))
 def test_the_manifest_needs_no_extra_library():
     assert MAN["id"] == "som" and MAN["conda"] == {"all": []} and MAN["extra_download_mb"] == 0
     assert MAN["libraries_in_server"] is True and MAN["python_package"] == "fluoviz_addon_som" and MAN["entry"] == "fluoviz_addon_som:register"
-    assert MAN["provides"]["result_kinds"] == [{"kind": "som", "noun": "map", "saveable": True}] and MAN["provides"]["saved_kinds"] == ["som"]
+    assert MAN["provides"]["result_kinds"] == [{"kind": "som", "noun": "self-organising map", "saveable": True}] and MAN["provides"]["saved_kinds"] == ["som"]
     nav = MAN["provides"]["nav"][0]
     assert nav["group"] == "Experimental methods" and nav["path"] == "/som" and nav["badge"] == "add-on" and nav["needsData"] is True
 

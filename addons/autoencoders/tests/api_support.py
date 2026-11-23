@@ -24,7 +24,7 @@ class FakeAPI:
 
     def __init__(self, app):
         self.app = app
-        self.id, self.version = "autoencoders", "1.0.0"
+        self.id, self.version = "autoencoders", "1.1.1"
         self.dir, self.web_dir, self.data_dir = ADDON, ADDON / "web", ADDON / "_data"
         self.log = logging.getLogger("test.addon")
         self.kinds, self.result_kinds, self.callbacks = [], [], []

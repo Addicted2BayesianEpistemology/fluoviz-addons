@@ -75,7 +75,7 @@ export const SomPlanesTab = {
           <Field label="Excitation from–to (nm)" style="width:200px"><div class="pair"><input class="input sm" type="number" v-model.number="box.ex0"/><input class="input sm" type="number" v-model.number="box.ex1"/></div></Field>
           <Field label="Emission from–to (nm)" style="width:200px"><div class="pair"><input class="input sm" type="number" v-model.number="box.em0"/><input class="input sm" type="number" v-model.number="box.em1"/></div></Field></template>
         <Field v-if="kind === 'absorbance'" label="Wavelength (nm)" style="width:140px"><input class="input sm" type="number" v-model.number="wl" data-som-wl/></Field>
-        <template v-if="kind === 'var'"><Field label="Variable" style="width:300px"><VarSelect v-model="varKey" small none-label="Choose a variable …" data-som-var/></Field><Switch v-model="smooth" label="Smooth over neighbouring units"/></template>
+        <template v-if="kind === 'var'"><Field label="Variable" style="width:300px"><VarSelect v-model="varKey" small placeholder="Choose a variable …" data-som-var/></Field><Switch v-model="smooth" label="Smooth over neighbouring units"/></template>
         <button type="button" class="btn" data-som-add-plane :disabled="busy" @click="add"><Icon name="plus" size="16"/>Add this plane</button>
       </div>
       <Callout kind="critical" v-if="error" data-som-plane-error>{{ error }}</Callout>

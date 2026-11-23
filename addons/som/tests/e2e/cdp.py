@@ -192,3 +192,23 @@ def _set_value(self, selector: str, value, event: str = "change", index: int = 0
 
 
 Chrome.set_value = _set_value
+
+
+def _pick_var(self, selector: str, key: str | None = None, contains: str | None = None, timeout: float = 20.0) -> str:
+    """Choose a variable in a FluoViz picker (``VarSelect``: a button that opens a searchable panel): click the button ``selector``, open the folded sections when needed, and click
+    the entry ``[data-var-key=<key>]`` (or the first whose key contains ``contains``).  Returns the key chosen (the button's ``data-value`` afterwards)."""
+    self.click(selector)
+    self.wait("document.querySelector('[data-var-panel]')", timeout, "the panel of the variable picker")
+    find = (f"document.querySelector('[data-var-panel] [data-var-key={json.dumps(key)}]')" if key is not None else
+            f"[...document.querySelectorAll('[data-var-panel] [data-var-key]')].find(e => e.getAttribute('data-var-key').includes({json.dumps(contains)}))")
+    if not self.eval(f"!!({find})"):
+        self.eval("[...document.querySelectorAll('[data-var-panel] [data-var-group][aria-expanded=\"false\"]')].forEach(e => e.click())")
+        time.sleep(0.3)
+    chosen = self.eval(f"(()=>{{const e={find}; if(!e) return null; e.scrollIntoView({{block:'center'}}); e.click(); return e.getAttribute('data-var-key');}})()")
+    if not chosen:
+        raise RuntimeError(f"no variable {key or contains!r} in the picker {selector}")
+    time.sleep(0.2)
+    return chosen
+
+
+Chrome.pick_var = _pick_var

@@ -36,8 +36,8 @@ def test_every_other_add_on_asks_for_a_version_of_it_that_this_one_has(other):
     assert m.requires_fluoviz == MAN["requires_fluoviz"]                          # (the same FluoViz versions: nobody is installed that the other cannot start with)
 
 
-def test_the_other_add_ons_are_the_two_that_share_it():
-    assert OTHERS == ["autoencoders", "som"]
+def test_the_other_add_ons_are_those_that_share_it():
+    assert OTHERS == ["autoencoders", "mblf", "som"]
 
 
 def test_the_build_makes_a_zip_with_the_python_package_and_the_browser_files(tmp_path):

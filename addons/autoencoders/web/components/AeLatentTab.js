@@ -50,7 +50,7 @@ export const AeRelate = {
     <div class="card-body col gap-12">
       <p class="fp-note">Which of your variables do the codes follow? For every variable you add, the page shows the correlation with each code and how well the variable can be predicted from the codes (cross-validated), next to the same from the same number of PCA scores.</p>
       <div class="row wrap">
-        <Field label="Add a variable" style="min-width:240px"><VarSelect :model-value="pick" :kinds="['numeric']" none-label="Choose a variable …" small @update:modelValue="add"/></Field>
+        <Field label="Add a variable" style="min-width:240px"><VarSelect :model-value="pick" :kinds="['numeric']" :exclude="vars" placeholder="Choose a variable …" small data-ae-relate-add @update:modelValue="add"/></Field>
         <button type="button" class="btn" data-ae-relate-go :disabled="!vars.length || (slot && slot.busy)" @click="run"><Icon name="play" size="16"/>Relate the codes</button>
       </div>
       <div class="row wrap" v-if="vars.length"><span class="chip" v-for="v in vars" :key="v">{{ labelOf(v) }}<span class="x" role="button" tabindex="0" :aria-label="'Remove ' + labelOf(v)" @click="remove(v)" @keydown.enter="remove(v)">×</span></span></div>

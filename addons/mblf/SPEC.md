@@ -1,0 +1,100 @@
+# Add-on "Multimodal latent factors" (`mblf`) — specification
+
+*The third model add-on.  It brings the Bayesian multimodal latent factor model of Ursino, Epifani and Trovò (mblf-python 1.0.0, vendored in `fluoviz_addon_mblf/vendor/`, MIT) into
+FluoViz.  Framework: FluoViz `docs/modules/addons.md`.  Model of the code: the self-organising map add-on; shared code: the `common` add-on.  User note: `docs/README_user.md`;
+routes: `docs/api.md`; interface contract: `docs/ui.md`.*
+
+## 1. What the person gets
+
+A page **Multimodal latent factors (add-on)** in *Experimental methods*: an eight-step pipeline (what to model, domain, basis, model and sampler, fit, results, prediction and
+uncertainty, checks and use).  It fits the model to any combination of **modes** — the fluorescence (EEM, a surface), the absorbance spectrum (a curve), a vector of other
+**values** (laboratory values, indices, scores of other results) — with optional **covariates** (metadata, numbers or categories) on the means of the factor scores.  Samples that
+lack part of a mode, or a whole mode, are used as they are (the likelihood is exact on the observed points).  Every result carries its posterior uncertainty; any mode of any
+sample can be predicted from any choice of sources with the predictive variance split into four parts; every choice of sources is compared held out (PSIS-LOO) with the coverage
+of its intervals.  Results publish per-sample variables and can be saved as a model (`mblf` kind) for new samples.
+
+## 2. Modes (`core/modes.py`)
+
+* Functions: FluoViz's `fluorescence_variable` / `absorbance_variable` (pre-treatment, domain, min coverage, cleaned absorbance).  Standardised: minus the mean of the training
+  samples at every point, divided by the root mean square of the centred samples over the domain (quadrature weights; each sample averaged over the part it has).
+* Basis: FluoViz's Gaussian-process Karhunen–Loève basis (`resolve_basis`, `build_representation`: variogram / ML / given length-scales, separable kernels, Lanczos / Nyström),
+  columns multiplied by `sqrt(lam_k / trace)` (the paper's `B = W^-1/2 V Xi^1/2`), truncated at the share of the prior variance asked (default **99 %**; the discarded share is the
+  expected relative truncation error), at most 40 (surface) / 25 (curve) functions by default.  Only the GP basis is offered: the prior of the method is built on it.
+* Values: each variable centred and divided by its SD, identity basis.  Covariates: numbers standardised; categories as centred indicators of every level but the most frequent
+  (the reference); at most 12 levels; samples with a missing covariate are left out (noted).
+* `partial` (default true): the samples are the union of those that have any mode; otherwise the intersection.
+
+## 3. The Stan engine (`core/engine.py`, `engine_job.py`)
+
+**Decision.** conda-forge's `cmdstan` pins its compiler (gcc 15 on Linux, clang 21 on macOS, gxx 15 on Windows); installing it into FluoViz's environment would downgrade the
+gcc 16 toolchain FluoViz has (a dry run changes 10 packages), which the framework forbids.  So the manifest asks for **no conda package** and the add-on keeps a **private
+environment** `<data_dir>/engine/env` (`python=3.12 cmdstan>=2.36 cmdstanpy>=1.2 xarray numpy scipy pandas`), created once from the page with FluoViz's micromamba
+(`fluoviz.addons.conda.mamba_env`: everything stays in `runtime/`).  A fit is a job in that environment: `micromamba run -p <env> python -u engine_job.py <job dir>` (activation
+sets `CMDSTAN` and the compiler); input/output are `.json` + `.npz`; progress lines `@@ f text` and CmdStan's `Chain [c] Iteration: i / n`; Cancel kills the process tree (psutil).
+The compiled programs are cached in `<engine>/stan-cache` (`MBLF_CACHE_DIR`).  CmdStan cannot compile in a path with a space: the engine then says so (`FLUOVIZ_MBLF_ENGINE_DIR`
+moves it).  `FLUOVIZ_MBLF_ENGINE=<prefix>` uses an existing environment (development, tests).  The FluoViz server never imports cmdstanpy or xarray (tested).
+
+## 4. The posterior (`core/posterior.py`, `core/structure.py`)
+
+* Draws kept: at most `keep` (default 1000), thinned evenly **within** every chain (chain structure kept for R-hat and PSIS); the page uses at most 400 (`VIEW_DRAWS`).
+* Alignment: per draw, Varimax-RSP (`mblf.align.varimax_rsp`) of the stacked loadings in the **L2 frame of the loading functions** (`G_d^1/2 Lambda_d`, `G_d = B_d' W_d B_d`,
+  modes standardised so each counts equally); factors ordered by mean strength; sign: largest entry of the mean aligned loading positive.  `T` (`S, K, K`) is stored; aligned
+  scores are `T' eta`.  Rotation-invariant quantities never use it.
+* Function summaries: posterior mean, the quantiles 2.5 / 10 / 25 / 50 / 75 / 90 / 97.5 % (the fan), a **simultaneous** 95 % band (sup-t: the 95 % quantile of the largest
+  standardised deviation of whole draws), `p_pos = P(> 0)` and the local false sign rate `lfsr = min(P(>0), P(<0))`.
+* Variance split at every point: factors (`B Lambda Psi Lambda' B'`, `Psi = I + beta Cov(x) beta'`), of which covariates, each sample's own (`B diag(sig2) B'`), noise
+  (`psi2`); whole-mode shares weighted by the quadrature weights.
+* **Predictable fraction** `R2` of a target from fully measured sources (and / or the covariates): `[B_T Lambda_T (Psi - V) Lambda_T' B_T']_mm / total(m)`, `V` the posterior
+  covariance of the scores given the sources (Gaussian: independent of the values); per point and for the whole mode, latent and measured, at every draw (posterior histogram).
+  The matrix of every target × every subset of the other modes × with / without covariates is stored with the result.
+* Correlation of one point with every point of a mode (population, noise excluded) per draw.  Covariate effects `scale * B Lambda beta_l` per design column and mode.
+* Effective dimension: `mblf.secondary.effective_dimension` (point weights = quadrature weights), with the posterior probability of every number of directions.
+
+## 5. Predictions and the uncertainty budget (`core/predict.py`)
+
+At every draw: `eta | sources ~ N(eta_hat, V)` (precision `Psi^-1 + sum_d G_d' W_d^-1 G_d`, `G_d = R_d Lambda_d`, `W_d = R_d diag(sig2_d) R_d' + psi2_d I`, `B_d,obs = U_d R_d`,
+samples with the same observed points share the algebra); covariates known: prior `N(beta x, I)`; unknown or absent: `N(0, Psi)`.  The target: mean `B Lambda eta_hat`, variance
+`B Lambda V Lambda' B'` (scores) `+ B diag(sig2) B'` (residual) `[+ psi2]` (noise, for a new measurement).  Mixture over the draws (modular rule; optional weights = PSIS weights
+of a held-out training sample).  **Budget** at every point = parameters (weighted variance of the conditional means) + scores + residual + noise, exactly the predictive
+variance; also its domain-weighted shares.  Pointwise quantiles of the mixture by bisection of its CDF inside mean ± 7 SD (Chebyshev); a simultaneous band from draws of whole
+functions; `P(above the training mean)`; aligned scores with mixture intervals.  Checked against brute-force Gaussian conditioning in `tests/test_core_numerics.py`.
+
+## 6. Held-out checks (`core/loo.py`, `core/checks.py`)
+
+* Marginal likelihood of any subset of modes of a sample (scores and residual coefficients integrated out), covariates known or not (`Lambda chol(Psi)` trick); equal to mblf's
+  `marginal_loglik` and to the dense Gaussian density (tests).
+* PSIS weights leaving out each sample (all its modes), `r_eff` from the chains; PSIS-LOO of the model; for a target and a source set the held-out conditional log density
+  `log sum_s w_s(n) p(y_T | y_S, draw s)` with `p(y_T | y_S) = p(y_T, y_S) / p(y_S)`; paired gains vs "nothing" and vs the best with SEs; the one-SE choice (the simplest set
+  within one paired SE of the best).
+* Calibration of a source set: held-out mixture predictive of every measured target value (at most `max_points` per sample): PIT, coverage of 50 / 80 / 95 %, RMSE, mean
+  80 % width (mixture quantiles on at most 40 points per sample), PIT histogram.
+* Convergence (engine): per rotation-invariant quantity of mblf (`identified_quantities`) the largest R-hat and smallest bulk / tail ESS; divergences, tree depth, E-BFMI; verdict
+  ok / warn / bad with what to do (thresholds 1.01, 400).  ML: starts at the optimum, variances at the floor.
+* Basis adequacy: `mblf.secondary.projection_diagnostics` + `projection_reference` per functional mode (simulations capped so they stay below ~160 MB).
+
+## 7. Result, variables, saved model
+
+* Result kind `mblf` (`mblf-N`); payload = everything of sections 4–6 in browser form (`server/payload.py`), plus `frozen` (common format).
+* Variables: `mblf_f<k>`, `mblf_f<k>_sd` (aligned posterior mean / SD of the scores from everything the sample has, Rao-Blackwellised), `mblf_loo` (held-out log density per
+  value), `mblf_pareto_k`.
+* Saved kind `mblf` (`kinds/`): the tree holds the modes (with their `FrozenElement` for reading new samples), covariates, draws, the training data (float32) and the reference
+  (training scores; per set of modes the 5 % / 1 % / median of the held-out log density per value).  Applying: reads what a sample has, covariates and values from the metadata
+  when present (`meta:` keys; listed as optional, not as recipe needs), gives scores ± SD, predicted values with 95 % intervals (`mblf_pred_<value>`, `_lo`, `_hi`), `mblf_surprise`,
+  status `outside` below the 1 % (or 5 %) point.  `inspect` shows the predicted EEM / spectrum with limits, SD and budget.  Freezing re-reads training samples through the recipe:
+  scores must agree to 1e-5 (also checked at fit time).
+* **Known limit (framework):** FluoViz's data recipe requires every function a model reads for every applied sample, so a saved model of EEM + absorbance cannot be applied to
+  samples without a spectrum (the page of a result handles them fully).
+
+## 8. Decisions where a choice was made
+
+* Smoothing is never chosen: the model separates shared variation, each sample's own part and noise.
+* "Values" are modes (explained and predicted); covariates explain only.  A variable cannot be both.
+* The training data are stored in the result (float32), so every view and the comparison job work after the project is reopened, without the project data.
+* The fit is a FluoViz job (heavy pool); the comparison of sources is a separate job (it costs seconds to a minute) whose result is stored in the payload.
+* The worker of the autoencoders add-on was not reused: this add-on runs a different interpreter (the engine's), so it has its own small process runner (`core/engine.py`).
+
+## 9. Tests
+
+`tests/` (FluoViz's `scripts/run_tests.sh`): numerics against brute-force algebra (no engine), the vendored copy, the engine's words, the saved-model side, the Help contract, the
+manifest and build, and — with `FLUOVIZ_MBLF_ENGINE` — the API end to end with a real Stan fit.  `tests/e2e/flow_mblf.py`: the whole page in Chrome (steps, every tab, a fit,
+a prediction, the comparison, the guide, 600 px, no console errors).

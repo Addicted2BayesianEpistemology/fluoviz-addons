@@ -97,6 +97,18 @@ def note(text: str) -> None:
 
 
 # ----------------------------------------------------------------------------------------------------------------------- helpers
+def pick_var(page, selector: str, key: str) -> None:
+    """Choose a variable in a FluoViz picker (``VarSelect``: a button that opens a searchable panel): open it, open the folded sections when needed, click ``[data-var-key=<key>]``."""
+    page.click(selector)
+    page.wait_for_selector("[data-var-panel]", timeout=10000)
+    entry = f"[data-var-panel] [data-var-key='{key}']"
+    if page.locator(entry).count() == 0:
+        for g in page.locator("[data-var-panel] [data-var-group][aria-expanded='false']").all():
+            g.click()
+    page.click(entry)
+    page.wait_for_timeout(200)
+
+
 def errors(page, since: int = 0) -> list[str]:
     """Console errors and server errors.  A refusal of the server (a 4xx answer with a plain-English message that the page shows) is how the browser logs a handled
     'Failed to load resource': those lines are not errors of the page."""
@@ -353,7 +365,7 @@ def part_results(page, rid: str, shots: bool) -> None:
     check(page.locator("[data-ae-axis-x] option").count() >= d, f"the axes offer the {d} codes")
     # the codes against other variables
     page.locator("[data-ae-relate]").scroll_into_view_if_needed()
-    page.select_option("[data-ae-relate] select", "meta:DOC_mgL")
+    pick_var(page, "[data-ae-relate-add]", "meta:DOC_mgL")
     page.wait_for_timeout(500)
     page.click("[data-ae-relate-go]")
     page.wait_for_selector("[data-ae-relate] .js-plotly-plot", timeout=90000)

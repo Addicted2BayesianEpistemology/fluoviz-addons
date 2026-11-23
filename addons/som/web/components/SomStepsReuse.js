@@ -39,7 +39,7 @@ export const SomStepWhat = {
         <Switch v-model="other.on" label="Map other variables instead of the EEMs and spectra" data-som-other-switch/>
         <template v-if="other.on">
           <div class="row wrap">
-            <div class="field" style="min-width:260px"><label>Add a variable</label><VarSelect :model-value="null" :kinds="['numeric']" none-label="Choose a variable …" small @update:modelValue="add"/></div>
+            <div class="field" style="min-width:260px"><label>Add a variable</label><VarSelect :model-value="null" :kinds="['numeric']" :exclude="other.keys" placeholder="Choose a variable …" small data-som-other-add @update:modelValue="add"/></div>
           </div>
           <div class="row wrap" v-if="other.keys.length"><span class="chip" v-for="k in other.keys" :key="k">{{ labelOf(k) }}<span class="x" role="button" tabindex="0" :aria-label="'Remove ' + labelOf(k)" @click="remove(k)" @keydown.enter="remove(k)">×</span></span></div>
           <Switch v-model="other.standardize" label="Standardise the variables (divide each by its standard deviation)" data-som-other-standardize/>

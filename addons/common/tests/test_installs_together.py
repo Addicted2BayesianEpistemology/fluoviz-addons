@@ -81,10 +81,10 @@ def installed(c):
     return {a["id"]: a for a in c.get("/api/addons").json()["installed"]}
 
 
-def test_the_list_offers_the_two_models_and_marks_the_shared_code(client):
+def test_the_list_offers_the_models_and_marks_the_shared_code(client):
     av = {a["id"]: a for a in client.get("/api/addons").json()["available"]}
-    assert set(av) == {"common", "som", "autoencoders"} and av["common"]["library"] is True and av["som"]["library"] is False
-    for aid in ("som", "autoencoders"):
+    assert set(av) == {"common", "som", "autoencoders", "mblf"} and av["common"]["library"] is True and av["som"]["library"] is False
+    for aid in ("som", "autoencoders", "mblf"):
         assert [x["id"] for x in av[aid]["also_installs"]] == ["common"] and av[aid]["requires_problem"] == ""
 
 

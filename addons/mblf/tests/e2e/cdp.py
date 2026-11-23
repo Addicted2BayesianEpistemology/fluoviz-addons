@@ -208,6 +208,11 @@ def _pick_var(self, selector: str, key: str | None = None, contains: str | None 
     if not chosen:
         raise RuntimeError(f"no variable {key or contains!r} in the picker {selector}")
     time.sleep(0.2)
+    # a picker with keep-open ("Add a variable" fields, FluoViz >= 1.2.0) stays open after a choice and marks the entry as added: close it with Esc, as a person would
+    self.last_kept_open = bool(self.eval("!!document.querySelector('[data-var-panel] [data-var-added-count]')"))
+    if self.eval("!!document.querySelector('[data-var-panel]')"):
+        self.eval("(()=>{const i=document.querySelector('[data-var-panel] [data-var-search]'); if(i) i.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); return true;})()")
+        time.sleep(0.2)
     return chosen
 
 

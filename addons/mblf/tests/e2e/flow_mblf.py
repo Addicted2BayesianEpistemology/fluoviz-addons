@@ -90,6 +90,7 @@ def main() -> int:
             shot(ch, "01-what")
             # a value and a covariate through the variable pickers (the catalogue keys)
             ch.pick_var("[data-mblf-add-value]", "meta:doc")
+            check(ch.last_kept_open, "the picker that adds a value stays open after a choice (keep-open) and counts what was added")
             ch.pick_var("[data-mblf-add-covariate]", "meta:site")
             time.sleep(0.5)
             check(ch.eval("document.querySelector('[data-mblf-add-value]').getAttribute('data-value')") == "", "the pickers that add a variable are empty again")

@@ -28,3 +28,5 @@ contain about as many measured values as they claim (50 / 80 / 95 %).
 *saved* model applied to new samples needs the EEM and the spectrum when it was fitted on both (values and covariates are optional).
 
 The Help tab *Multimodal latent factors* explains every step in detail.
+
+**Versions.** Multimodal latent factors 1.0.0; needs FluoViz 1.2.0 or newer (its searchable pickers that stay open while you add values and covariates).

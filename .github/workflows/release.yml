@@ -22,8 +22,15 @@ jobs:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
-      - name: Build the add-ons
-        run: python3 scripts/build_addon.py
+      - name: Build the add-ons (and keep the versions of the latest release that an older FluoViz still needs)
+        # FluoViz offers, per add-on, the newest version that fits it: the entries of the previous latest release stay in the list so that a person with an older FluoViz
+        # is still offered what runs there (scripts/build_addon.py drops those that a newer version replaces for exactly the same FluoViz versions)
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/latest" >/dev/null 2>&1; then
+            python3 scripts/build_addon.py --keep-release latest
+          else
+            python3 scripts/build_addon.py
+          fi
       - name: Check that every zip matches its sha256 in the index
         run: |
           python3 - <<'PY'

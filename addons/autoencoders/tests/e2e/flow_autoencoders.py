@@ -107,6 +107,9 @@ def pick_var(page, selector: str, key: str) -> None:
             g.click()
     page.click(entry)
     page.wait_for_timeout(200)
+    if page.locator("[data-var-panel]").count():                # a picker with keep-open (FluoViz >= 1.2.0) stays open after a choice: Esc closes it
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
 
 
 def errors(page, since: int = 0) -> list[str]:
@@ -365,7 +368,15 @@ def part_results(page, rid: str, shots: bool) -> None:
     check(page.locator("[data-ae-axis-x] option").count() >= d, f"the axes offer the {d} codes")
     # the codes against other variables
     page.locator("[data-ae-relate]").scroll_into_view_if_needed()
-    pick_var(page, "[data-ae-relate-add]", "meta:DOC_mgL")
+    page.click("[data-ae-relate-add]")
+    page.wait_for_selector("[data-var-panel]", timeout=10000)
+    page.fill("[data-var-panel] [data-var-search]", "DOC_mgL")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(300)
+    check(page.locator("[data-var-panel]").count() == 1 and page.locator("[data-var-added-count]").count() == 1, "'Add a variable' stays open after a choice (keep-open) and counts what was added")
+    page.keyboard.press("Escape")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
     page.wait_for_timeout(500)
     page.click("[data-ae-relate-go]")
     page.wait_for_selector("[data-ae-relate] .js-plotly-plot", timeout=90000)

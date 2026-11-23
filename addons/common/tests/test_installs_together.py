@@ -95,7 +95,7 @@ def test_installing_the_map_installs_the_shared_add_on_first_and_removing_it_tak
     assert set(now) == {"common", "som"} and now["common"]["state"] == "active" and now["som"]["state"] == "active" and now["common"]["library"] is True
     assert [d["id"] for d in now["common"]["needed_by"]] == ["som"] and now["som"]["requires"][0]["status"] == "ok"
     assert client.get("/api/addon/som/methods").status_code in (200, 400, 404, 405) and "som" in client.get("/api/addons").text
-    assert (client.rt / "addons" / "common" / "1.0.0" / "fluoviz_addon_common" / "freeze.py").is_file()
+    assert (client.rt / "addons" / "common" / json.loads((Path(__file__).resolve().parents[1] / "manifest.json").read_text(encoding="utf-8"))["version"] / "fluoviz_addon_common" / "freeze.py").is_file()
     r = client.request("DELETE", "/api/addons/common", json={})
     assert r.status_code == 400 and "cannot be removed while" in r.json()["error"]["message"]
     j = job(client, "DELETE", "/api/addons/som", {})

@@ -36,10 +36,18 @@ git tag v1.0.0 && git push --tags         # a tag starts .github/workflows/relea
 
 The Install button always reads `https://github.com/<owner>/fluoviz-addons/releases/latest/download/index.json`, so the **latest** release must contain the index and the zips of EVERY add-on that should stay installable.
 
+**Older FluoViz versions keep being served.**  The workflow builds with `--keep-release latest`: the new index also lists the entries (and carries the zips) of the release that was latest until then.  FluoViz offers, per add-on, the newest version that fits it (`requires_fluoviz`) and picks the shared add-on the same way, so when the add-ons start to need a newer FluoViz, a person who has not updated FluoViz is still offered the versions that run there.  An old entry is dropped only when a newer version of the same add-on asks for exactly the same FluoViz versions.  Release v1.2.0, for example, offers FluoViz 1.2.0 common 1.0.1, autoencoders 1.1.2, som 1.0.2 and mblf 1.0.0, and FluoViz 1.1.0 common 1.0.0, autoencoders 1.1.0 and som 1.0.0 (mblf is listed there as "needs FluoViz 1.2.0").  Test: `addons/common/tests/test_index_versions.py` (against FluoViz's own choice code).
+
+| add-ons release | for FluoViz | versions |
+|---|---|---|
+| v1.2.0 | 1.2.0 or newer | common 1.0.1, autoencoders 1.1.2, som 1.0.2, mblf 1.0.0 (all need the searchable pickers of FluoViz 1.2.0: `VarSelect` with `items` and `keep-open`) |
+| v1.2.0 (kept from v1.1.0) | 1.1.x | common 1.0.0, autoencoders 1.1.0, som 1.0.0 |
+
 ## Build the files that the Install button downloads
 
 ```bash
 python scripts/build_addon.py            # every add-on  ->  dist/
+python scripts/build_addon.py --keep-release v1.1.0     # also list (and copy) the add-ons of release v1.1.0, for the FluoViz versions they serve; --keep-from <folder> for a local copy
 ```
 
 `dist/index.json` lists the add-ons (sha256, size, manifest); FluoViz reads it from the **source** set in *Settings → Add-ons → Where add-ons come from*: a web address (for example the assets of a release of this repository) **or a folder** (copy `dist/` to a USB stick or a shared drive and choose that folder).  *Install from a file* installs a single `.zip` without any index.
@@ -66,5 +74,4 @@ Only code that **two add-ons would otherwise copy**, and that does not belong to
 
 ## Requests to FluoViz core
 
-* **`VarSelect` with `items`** (like `VarChecklist` has).  The Self-organising map's **Index** picker (step 7, Planes: the fluorescence indices of the *prototypes*, grouped HIX / BIX / peaks …) is a long grouped list of things that are not catalogue variables, so it stays a native `<select>` with `<optgroup>`s.  The searchable panel would serve it well, but `VarSelect` only lists the catalogue; `VarChecklist` already accepts `items`, `VarSelect` does not.
-* (Observation) the add-ons' "Add a variable" fields (a `VarSelect` with a `placeholder` followed by removable chips) close the panel after each choice; adding several variables takes one opening per variable.  `VarChecklist` covers several variables but always shows its list; a "keep open after choosing" option of `VarSelect` would suit these fields.
+Nothing open.  Done in FluoViz 1.2.0: `VarSelect` with `items` (the Self-organising map's **Index** picker now uses it) and `keep-open` (the "Add a variable / value / covariate" fields of the three add-ons stay open while several variables are added).

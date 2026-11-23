@@ -20,7 +20,7 @@
 
 ## Steps 1 to 3
 
-* **1 · What to model**: the Functional PCA cards **Fluorescence**, **Absorbance**, **Both together (multivariate)** and **Pre-treatment**; then the card **Other values and covariates**: **Values to model (optional)** (**Add a value**), **Covariates (optional)** (**Add a covariate**), the switch **Use samples that lack a measurement (they contribute what they have, and the model predicts what they lack)**, and the sentence **This model:** that says what the combination answers.
+* **1 · What to model**: the Functional PCA cards **Fluorescence**, **Absorbance**, **Both together (multivariate)** and **Pre-treatment**; then the card **Other values and covariates**: **Values to model (optional)** (**Add a value**), **Covariates (optional)** (**Add a covariate** (a searchable picker that stays open after each choice, so several variables are added in one go; Esc closes it)), the switch **Use samples that lack a measurement (they contribute what they have, and the model predicts what they lack)**, and the sentence **This model:** that says what the combination answers.
 * **2 · Domain**: the Functional PCA step.  **3 · Basis**: the Functional PCA representation step with the Gaussian-process basis only.
 
 ## Step 4 · Model and sampler

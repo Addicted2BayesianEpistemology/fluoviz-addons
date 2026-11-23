@@ -46,3 +46,5 @@ The shared add-on keeps its Python and browser interface stable within a major v
 `tests/` (run like those of the other add-ons, see the README of the repository): the limits and the functional helpers against independent formulas, the freezing steps with their refusals, the manifests of all add-ons against the framework's validator, the built zip, and a real installation: installing the map from a built source installs this add-on first, removing the map takes it away.
 
 The multimodal latent factor add-on (`mblf`, 1.0.0) uses `serial`, `functional.pixel_element`, `project_data`, `results`, `freeze`, `kinds` and the three browser files; it needs nothing new from this add-on.
+
+**Versions.** 1.0.1 (only the FluoViz it asks for changed: 1.2.0 or newer, like the add-ons that need it). FluoViz 1.1.0 is still offered 1.0.0 with the add-ons of that time.

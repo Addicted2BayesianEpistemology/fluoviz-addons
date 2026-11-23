@@ -33,3 +33,5 @@ Only the **computer that runs FluoViz** can install, update or remove add-ons. A
 |---|---|
 | The add-on's files | `runtime/addons/som/<version>/` inside the FluoViz folder |
 | Your maps | in your project, with the other results |
+
+**Versions.** Self-organising map 1.0.2; needs FluoViz 1.2.0 or newer (its searchable pickers). On an older FluoViz the Install button offers version 1.0.0 instead.

@@ -24,7 +24,8 @@ export const SomPlanesTab = {
     const error = ref(''), busy = ref(false), shared = ref(false);
     onMounted(() => { loadCatalogue(); loadIndices(); });
     const idx = computed(() => { const s = A.value.extra[`indices|${A.value.resRid}`]; return s && s.data ? s.data.indices : []; });
-    const groups = computed(() => { const m = new Map(); for (const i of idx.value) { if (!m.has(i.group)) m.set(i.group, []); m.get(i.group).push(i); } return [...m.entries()]; });
+    // the indices of the prototypes as the entries of a searchable picker (FluoViz >= 1.2.0: VarSelect with items), grouped as the server lists them (HIX / BIX, peaks …)
+    const indexItems = computed(() => idx.value.map((i) => ({ key: i.key, label: i.name, group: i.group, description: i.description || '' })));
     const all = computed(() => planeOptions());
     const mapProps = computed(() => { const r = R.value; return r ? { M: r.M, rows: r.rows, cols: r.cols, lattice: r.lattice, shape: r.shape, coords: r.coords, edges: r.edges } : null; });
     const planes = computed(() => shown.value.map((k) => all.value.find((o) => o.key === k)).filter(Boolean).map((o) => o.plane));
@@ -59,7 +60,7 @@ export const SomPlanesTab = {
     const mean = computed(() => (R.value && R.value.p.mean_image && hasEem.value ? image(Object.values(R.value.p.mean_image)[0]) : null));
     const ax = computed(() => (R.value && R.value.p.ex ? { ex: vec(R.value.p.ex), em: vec(R.value.p.em), mask: R.value.p.mask ? maskArr(R.value.p.mask) : null } : null));
     function pick(e) { if (e && Number.isFinite(e.ex) && Number.isFinite(e.em)) { pixel.value = { ex: Math.round(e.ex), em: Math.round(e.em) }; kind.value = 'point'; } }
-    return { A, R, shown, kind, kinds, index, groups, pixel, box, wl, varKey, smooth, error, busy, all, mapProps, planes, toggle, add, hasEem, mean, ax, pick, shared, fmt };
+    return { A, R, shown, kind, kinds, index, indexItems, pixel, box, wl, varKey, smooth, error, busy, all, mapProps, planes, toggle, add, hasEem, mean, ax, pick, shared, fmt };
   },
   template: `
   <div class="col gap-12" data-som-planes-tab>
@@ -68,8 +69,7 @@ export const SomPlanesTab = {
       <div class="row wrap"><label class="chip som-plane-pick" v-for="o in all" :key="o.key" :class="{ on: shown.includes(o.key) }" :data-plane="o.key"><input type="checkbox" :checked="shown.includes(o.key)" @change="toggle(o.key)"/> {{ o.label }}</label></div>
       <div class="row wrap" style="gap:12px 20px;align-items:flex-end">
         <Field label="Add a plane" style="width:260px"><select class="select sm" v-model="kind" data-som-plane-kind><option v-for="k in kinds" :key="k.value" :value="k.value">{{ k.label }}</option></select></Field>
-        <Field v-if="kind === 'index'" label="Index" style="width:300px" help="An index of a prototype (an average, possibly smoothed or shape-only) is not the index of a sample: read it as where on the map the quantity is high."><select class="select sm" v-model="index" data-som-plane-index>
-          <optgroup v-for="[g, items] in groups" :key="g" :label="g"><option v-for="i in items" :key="i.key" :value="i.key">{{ i.name }}</option></optgroup></select></Field>
+        <Field v-if="kind === 'index'" label="Index" style="width:300px" help="An index of a prototype (an average, possibly smoothed or shape-only) is not the index of a sample: read it as where on the map the quantity is high."><VarSelect v-model="index" small :items="indexItems" placeholder="Choose an index …" data-som-plane-index/></Field>
         <template v-if="kind === 'point'"><Field label="Excitation (nm)" style="width:120px"><input class="input sm" type="number" v-model.number="pixel.ex" data-som-px-ex/></Field><Field label="Emission (nm)" style="width:120px"><input class="input sm" type="number" v-model.number="pixel.em" data-som-px-em/></Field></template>
         <template v-if="kind === 'box'"><Field label="Statistic" style="width:150px"><select class="select sm" v-model="box.mode"><option value="region_mean">Mean</option><option value="region_max">Highest</option></select></Field>
           <Field label="Excitation from–to (nm)" style="width:200px"><div class="pair"><input class="input sm" type="number" v-model.number="box.ex0"/><input class="input sm" type="number" v-model.number="box.ex1"/></div></Field>

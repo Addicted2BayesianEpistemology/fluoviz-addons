@@ -417,7 +417,7 @@ def _functional_block(el, v, ife):
     msq = F.total_variance(Z, v.name, AutoencoderError, NOTHING)         # total variance of the variable: mean squared L2 norm of the centred samples
     notes: list = []
     cumulative = None
-    if rep.kind == "gp":
+    if rep.kind == "gp" and rep.G is None:                                       # (an orthonormal Gaussian-process basis; a tensor product on a masked domain is not: as the splines)
         d = F.gp_prior_scale(el, Z, notes)
         omega = d ** 2 / msq
         q_smooth = {"kind": "identity"}

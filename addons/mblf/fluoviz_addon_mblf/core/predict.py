@@ -2,7 +2,7 @@
 
 **At one draw of the population parameters** everything is Gaussian.  What is known about a sample (its *sources*: any of its modes, observed at any of their points, and its
 covariates, or not) gives the posterior of its scores ``eta | sources ~ N(eta_hat, V)`` (precision ``Psi^-1 + sum_d G_d' W_d^-1 G_d`` with ``G_d = R_d Lambda_d``,
-``W_d = R_d diag(sig2_d) R_d' + psi2_d I``, ``B_d,obs = U_d R_d``; the prior is ``N(beta x, I)`` when the covariates are known and ``N(0, I + beta Cov(x) beta')`` when they are not),
+``W_d = R_d diag(sig2_d) R_d' + psi2_d I``, ``B_d,obs = U_d R_d``; the prior is ``N(beta x, I)`` when the covariates are known and ``N(beta xbar, I + beta Cov(x) beta')`` when they are not; ``xbar`` = 0 for centred covariates),
 and the target mode ``f = B_T theta_T`` then has
 
     mean      B_T Lambda_T eta_hat
@@ -62,6 +62,8 @@ def score_posterior(f: Fitted, sources: dict, X: np.ndarray | None, idx: np.ndar
         Pinv = np.broadcast_to(np.eye(K), (S, K, K)).copy()
     else:
         mu = np.zeros((S, n, K))
+        if L > 0:                                                                   # the mean of the population (0 when the covariates are centred on their mean)
+            mu += np.einsum("skl,l->sk", f.beta(idx), f.cov.xbar())[:, None, :]
         Psi = f.psi_cov(idx)
         Pinv = np.broadcast_to(np.eye(K), (S, K, K)).copy() if Psi is None else np.linalg.inv(Psi)
     h0 = np.einsum("skl,snl->snk", Pinv, mu)

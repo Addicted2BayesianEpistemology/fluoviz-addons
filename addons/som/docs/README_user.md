@@ -34,4 +34,9 @@ Only the **computer that runs FluoViz** can install, update or remove add-ons. A
 | The add-on's files | `runtime/addons/som/<version>/` inside the FluoViz folder |
 | Your maps | in your project, with the other results |
 
-**Versions.** Self-organising map 1.0.2; needs FluoViz 1.2.0 or newer (its searchable pickers). On an older FluoViz the Install button offers version 1.0.0 instead.
+**One fluorophore?** Among the indices of the prototypes (Planes), **Trilinear share (one fluorophore?)** colours every unit by how much of its prototype's EEM ONE emission
+profile times ONE excitation profile holds (the structure PARAFAC assumes for a fluorophore).  With FluoViz 1.3 the Gaussian-process basis of step 3 can also be a tensor
+product of one-dimensional bases.
+
+**Versions.** Self-organising map 1.1.0 (the trilinear share of the prototypes; tensor-product bases); needs FluoViz 1.3.0 or newer. On FluoViz 1.2 the Install button offers
+version 1.0.2, on 1.1 version 1.0.0.

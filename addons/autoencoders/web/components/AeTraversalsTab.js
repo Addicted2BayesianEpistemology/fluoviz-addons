@@ -91,7 +91,8 @@ export const AeTraversalsTab = {
     });
     const shareLayout = computed(() => ({ height: 220, margin: { l: 56, r: 14, t: 10, b: 44 }, xaxis: { title: { text: 'Code' } }, yaxis: { title: { text: 'Share of the total effect' }, tickformat: '.0%', rangemode: 'tozero' } }));
     const shareTable = computed(() => { const s = sensData.value; return s && s.fluorescence && s.fluorescence.share ? { columns: ['code', 'share of the total effect'], rows: s.names.map((n, i) => [n, s.fluorescence.share[i]]) } : { columns: [], rows: [] }; });
-    return { A, R, T, S, state, data, values, mid, ex, em, mask, units, hasFl, hasAb, range, shown, strips, curves, cols, labels, sens, sensData, shareTraces, shareLayout, shareTable, shortUnits, SHOWN, narrow, fmt };
+    const triRows = computed(() => { const s = sensData.value; const t = s && s.fluorescence && s.fluorescence.trilinear; return t ? s.names.map((n, i) => ({ name: n, share: Array.from(t.share)[i] })) : []; });
+    return { A, R, T, S, state, data, values, mid, ex, em, mask, units, hasFl, hasAb, range, shown, strips, curves, cols, labels, sens, sensData, shareTraces, shareLayout, shareTable, shortUnits, SHOWN, narrow, fmt, triRows };
   },
   template: `
   <div class="col gap-12" data-ae-traversals-tab>
@@ -124,6 +125,10 @@ export const AeTraversalsTab = {
         <AeStripCard v-if="sens" title="Change of the EEM per 1 SD of each code" :images="sens.imgs" :labels="sens.labels" :ex="sens.ex" :em="sens.em" :mask="sens.mask" kind="diverging" :zrange="sens.range" :units="shortUnits(sensData.units)"
                      :cols="Math.min(sens.imgs.length, 4)" :row-height="170" filename="autoencoder-sensitivity" help="The derivative of the rebuilt EEM with respect to each code, at the mean code, for a change of one standard deviation of the code: the nonlinear counterpart of a loading."/>
         <ChartCard v-if="shareTraces.length" title="Share of the total effect of each code" :table="shareTable" filename="autoencoder-sensitivity-share"><PlotlyChart :data="shareTraces" :layout="shareLayout" :height="220"/></ChartCard>
+        <div v-if="triRows.length" data-ae-trilinear>
+          <p class="fp-note"><b>Is the effect of a code one fluorophore?</b> The share of each map above that ONE emission profile times ONE excitation profile holds (the structure PARAFAC assumes for a fluorophore), fitted on the pixels that exist. Near 100 %: the code moves one fluorophore-like pattern; lower: it changes several patterns with different spectra at once. Not imposed by the network, only checked.</p>
+          <table class="table"><thead><tr><th>Code</th><th>Trilinear share of its effect</th></tr></thead><tbody><tr v-for="r in triRows" :key="r.name"><td>{{ r.name }}</td><td>{{ Number.isFinite(r.share) ? Math.round(100 * r.share) + ' %' : '–' }}</td></tr></tbody></table>
+        </div>
       </div>
     </AeSection>
   </div>`,

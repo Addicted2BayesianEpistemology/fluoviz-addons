@@ -47,4 +47,4 @@ The shared add-on keeps its Python and browser interface stable within a major v
 
 The multimodal latent factor add-on (`mblf`, 1.0.0) uses `serial`, `functional.pixel_element`, `project_data`, `results`, `freeze`, `kinds` and the three browser files; it needs nothing new from this add-on.
 
-**Versions.** 1.0.1 (only the FluoViz it asks for changed: 1.2.0 or newer, like the add-ons that need it). FluoViz 1.1.0 is still offered 1.0.0 with the add-ons of that time.
+**Versions.** 1.0.2 (only the FluoViz it asks for changed: 1.3.0 or newer, like the add-ons that need it; FluoViz 1.2 is still offered 1.0.1). 1.0.1 (only the FluoViz it asks for changed: 1.2.0 or newer, like the add-ons that need it). FluoViz 1.1.0 is still offered 1.0.0 with the add-ons of that time.

@@ -55,9 +55,13 @@ def view_summary(mode, s: dict) -> dict:
 
 def factors_view(f: Fitted, idx) -> list[dict]:
     out = []
+    tri = ST.trilinear_loadings(f, idx)
     for fac in ST.factor_summaries(f, idx):
+        k = fac["factor"] - 1
         out.append({"factor": fac["factor"], "share": fac["share"],
-                    "modes": [{"mode": m["mode"], **view_summary(f.modes[f.index(m["mode"])], m)} for m in fac["modes"]]})
+                    "modes": [{"mode": m["mode"], **view_summary(f.modes[f.index(m["mode"])], m),
+                               **({"trilinear": {kk: (np.asarray(v, np.float32) if isinstance(v, np.ndarray) else v) for kk, v in tri[m["mode"]][k].items()}} if m["mode"] in tri else {})}
+                              for m in fac["modes"]]})
     return out
 
 

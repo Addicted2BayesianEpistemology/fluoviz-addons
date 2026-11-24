@@ -48,6 +48,9 @@ def loglik(f: Fitted, summ: list, modes: list[int], idx: np.ndarray, X: np.ndarr
         mu = np.zeros((S, N, K))
         Psi = f.psi_cov(idx)
         Lp = None if Psi is None else np.linalg.cholesky(Psi)
+        if Lp is not None:                                                          # the mean of the population, beta xbar (0 for covariates centred on their mean), in the
+            m0 = np.einsum("skl,l->sk", f.beta(idx), f.cov.xbar())                  # whitened coordinates of lam chol(Psi)
+            mu += np.linalg.solve(Lp, m0[..., None])[..., 0][:, None, :]
     lam = {d: (f.lam(d, idx=idx) if Lp is None else f.lam(d, idx=idx) @ Lp) for d in modes}
     sig2 = {d: f.sig2(d, idx) for d in modes}
     psi = {d: f.psi2(d, idx) for d in modes}
@@ -68,7 +71,7 @@ def loglik(f: Fitted, summ: list, modes: list[int], idx: np.ndarray, X: np.ndarr
             R = R[keep]
             p = R.shape[0]
             E = (R[None] * sig2[d][:, None, :]) @ R.T + psi[d][:, None, None] * np.eye(p)
-            RL = R @ lam[d]                                                     # (with the covariates unknown, lam = Lambda chol(Psi) and mu = 0)
+            RL = R @ lam[d]                                                     # (with the covariates unknown, lam = Lambda chol(Psi) and mu = beta xbar)
             r = R @ T[:, n] - np.einsum("spk,sk->sp", RL, mu[:, n])
             sol = np.linalg.solve(E, np.concatenate([RL, r[..., None]], axis=-1))
             quad += np.einsum("sp,sp->s", r, sol[..., K])

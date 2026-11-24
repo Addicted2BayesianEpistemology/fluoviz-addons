@@ -422,6 +422,7 @@ def part_results(page, rid: str, shots: bool) -> None:
     check(page.locator("[data-ae-traversal] .fig-btn").count() >= 2, "the traversal strips have the .rds and .fig buttons")
     page.wait_for_selector("[data-ae-sensitivity] .js-plotly-plot", timeout=60000)
     check("changes the fluorescence" in text(page, "[data-ae-sensitivity]") or "Code z1" in text(page, "[data-ae-sensitivity]"), "the sensitivity says in words what each code does")
+    check("%" in text(page, "[data-ae-trilinear]"), "the trilinear share of the effect of every code")
     page.click("[data-ae-trav-show] button:has-text('Difference to the mean')")
     page.wait_for_timeout(1500)
     page.click("[data-ae-trav-range] button:has-text('±1 SD')")

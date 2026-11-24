@@ -48,10 +48,15 @@ export const SCALINGS = [{ value: 'global', label: 'One number', title: 'Divide 
   { value: 'pareto', label: 'Pareto', title: 'Divide every point by the square root of its own spread: between keeping the shape and weighting every point equally' },
   { value: 'pointwise', label: 'Every point', title: 'Divide every point by its own spread (autoscaling): every point counts the same, also where there is mostly noise' },
   { value: 'none', label: 'None', title: 'Keep the data units: the default priors then assume values of order one' }];
+export const VAR_CENTRES = [{ value: 'mean', label: 'Mean' }, { value: 'median', label: 'Median' }, { value: 'none', label: 'Not centred' }];
+export const CAT_CENTRES = [{ value: 'mean', label: 'Centred indicators' }, { value: 'none', label: '0 / 1 indicators' }];
+export const VAR_SCALINGS = [{ value: 'sd', label: 'Standard deviation' }, { value: 'mad', label: 'Robust (MAD)' }, { value: 'none', label: 'Not scaled' }];
+/** How a value or covariate is centred and scaled (the default when not set). */
+export const varPrepOf = (m, key) => ({ centre: 'mean', scaling: 'sd', ...((m.var_prep || {})[key] || {}) });
 export function modelDefault() {
   return {
-    values: [], covariates: [], partial: true, basis_from: 'gp', large_basis: false,
-    prep: { fluorescence: prepDefault(), absorbance: prepDefault() }, log_keys: [], values_basis: 'identity', values_share: 95, values_n: null,
+    values: [], covariates: [], partial: true, basis_from: 'gp', large_basis: false, fpca_result: null,
+    prep: { fluorescence: prepDefault(), absorbance: prepDefault() }, log_keys: [], var_prep: {}, values_basis: 'identity', values_share: 95, values_n: null,
     K: 5, estimation: 'bayes', preset: 'standard', custom: false, chains: 4, warmup: 1000, draws: 1000, adapt_delta: 0.8, max_treedepth: 12, keep: 1000, ml_starts: 8,
     priors: { a_psi: 2, b_psi: 2, a_tau: 2, b_tau: 2, a1: 2, a2: 2, b_lambdavar: 1, nu: 3, sigma_regr_coeffs: 10 },
     seed: 1, title: '', allow_few: false,
@@ -73,7 +78,7 @@ export function freshMb() {
     check: { key: '', ans: null, error: '', busy: false },
     res: null, resRid: null, resError: '', resBusy: false, fitError: '',
     tab6: 'overview', tab8: 'convergence',
-    view: { factor: 0, stat: 'mean', simultaneous: true, target: null, combo: null, corrA: null, corrB: null, corrX: null, corrY: null, corrJ: 0, valScale: 'sd',
+    view: { factor: 0, stat: 'mean', simultaneous: true, target: null, combo: null, corrA: null, corrB: null, corrX: null, corrY: null, corrJ: 0, valScale: 'sd', covSel: null,
       cov: 0, covVs: null, catKey: null, catLevel: null, catHow: 'pure', catTarget: null, catNoisy: false },
     pred: { sample: null, target: null, sources: null, covariates: true, heldOut: true, noisy: false, stat: 'mean', residStat: 'value' },
     cmp: { target: null, row: null },
@@ -103,6 +108,8 @@ export function basisIssues(spec) {
 }
 export function prepIssues(spec) {
   const m = spec.mblf, out = [];
+  if (m.basis_from === 'fitted' && !m.fpca_result) out.push('Choose the fitted functional PCA whose eigenfunctions are the basis (step 3), or take the basis from elsewhere.');
+  if (m.basis_from === 'fitted') for (const name of variablesOf(spec)) if (((m.prep || {})[name] || {}).log) out.push(`The basis of the ${name} comes from a fitted functional PCA, which did not use a log scale: switch the log of the ${name} off.`);
   for (const name of variablesOf(spec)) {
     const p = (m.prep || {})[name] || prepDefault();
     if (p.log && p.log_offset !== null && p.log_offset !== '' && !(Number(p.log_offset) >= 0)) out.push(`The offset of the log of the ${name} must be a number of zero or more (or empty: chosen from the data).`);
@@ -166,7 +173,11 @@ export const mbJobs = { fit: useJob(), check: useJob(), engine: useJob(), compar
 export function requestBody(spec = fp.spec, extra = {}) {
   const m = spec.mblf, names = variablesOf(spec);
   const input = { variables: names, values: m.values.slice(), covariates: m.covariates.slice(), partial: !!m.partial, large_basis: !!m.large_basis,
-    log_keys: (m.log_keys || []).filter((k) => m.values.includes(k) || m.covariates.includes(k)) };
+    log_keys: (m.log_keys || []).filter((k) => m.values.includes(k) || m.covariates.includes(k)), var_prep: {}, fpca_result: m.basis_from === 'fitted' ? (m.fpca_result || null) : null };
+  for (const k of [...m.values, ...m.covariates]) {
+    const v = varPrepOf(m, k);
+    if (v.centre !== 'mean' || v.scaling !== 'sd') input.var_prep[k] = { centre: v.centre, scaling: v.scaling };
+  }
   if (m.values.length > 1 && m.values_basis === 'pca') {
     const n = m.values_n === null || m.values_n === '' ? null : Math.round(Number(m.values_n));
     input.values_basis = { kind: 'pca', var_fraction: Number(m.values_share) / 100, n_basis: n };
@@ -174,7 +185,7 @@ export function requestBody(spec = fp.spec, extra = {}) {
   for (const name of names) {
     const v = ctx.varBody(name, spec), p = { ...prepDefault(), ...((m.prep || {})[name] || {}) };
     const off = p.log && p.log_offset !== null && p.log_offset !== '' ? Number(p.log_offset) : null;
-    input[name] = { transform: v.transform, basis: v.basis, basis_from: m.basis_from === 'fpca' ? 'fpca' : 'gp', ...(name === 'fluorescence' ? { min_coverage: v.min_coverage } : { processed: v.processed }),
+    input[name] = { transform: v.transform, basis: v.basis, basis_from: ['fpca', 'fitted'].includes(m.basis_from) ? m.basis_from : 'gp', ...(name === 'fluorescence' ? { min_coverage: v.min_coverage } : { processed: v.processed }),
       log: !!p.log, log_offset: off, centre: p.centre, scaling: p.scaling };
   }
   const num = Number;
@@ -203,10 +214,12 @@ export function specFromRequest(p) {
     m.prep[name] = { log: !!v.log, log_offset: v.log_offset ?? null, centre: v.centre || 'mean', scaling: v.scaling || 'global' };
   }
   m.log_keys = (inp.log_keys || []).slice();
+  m.var_prep = JSON.parse(JSON.stringify(inp.var_prep || {}));
   const vb = inp.values_basis || {};
   m.values_basis = vb.kind === 'pca' ? 'pca' : 'identity'; m.values_share = Math.round((vb.var_fraction ?? 0.95) * 10000) / 100; m.values_n = vb.n_basis ?? null;
   m.values = (inp.values || []).slice(); m.covariates = (inp.covariates || []).slice(); m.partial = inp.partial !== false; m.large_basis = !!inp.large_basis;
-  m.basis_from = names.some((n) => (inp[n] || {}).basis_from === 'fpca') ? 'fpca' : 'gp';
+  m.basis_from = names.some((n) => (inp[n] || {}).basis_from === 'fitted') ? 'fitted' : names.some((n) => (inp[n] || {}).basis_from === 'fpca') ? 'fpca' : 'gp';
+  m.fpca_result = inp.fpca_result || null;
   const mo = p.model || {}, sa = p.sampler || {};
   m.K = mo.K ?? 5; m.estimation = mo.estimation || 'bayes'; Object.assign(m.priors, mo.priors || {});
   const preset = Object.entries({ quick: [2, 400, 400], standard: [4, 1000, 1000], thorough: [4, 2000, 2000] }).find(([, v]) => v[0] === sa.chains && v[1] === sa.warmup && v[2] === sa.draws);

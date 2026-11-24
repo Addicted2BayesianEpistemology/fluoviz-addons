@@ -140,9 +140,15 @@ class Covariates:
     def L(self) -> int:
         return int(self.X.shape[1])
 
+    def xbar(self) -> np.ndarray:
+        """The mean design of the training samples ``(L,)``: zero when every covariate is centred on its mean (the default); the scores of a sample whose covariates are not
+        known have the prior mean ``beta xbar``."""
+        return self.X.mean(axis=0) if self.X.shape[0] else np.zeros(self.L)
+
     def cov(self) -> np.ndarray:
-        """The covariance of the design over the training samples ``(L, L)``."""
-        return self.X.T @ self.X / max(self.X.shape[0], 1)
+        """The covariance of the design over the training samples ``(L, L)`` (about its mean)."""
+        Xc = self.X - self.xbar()
+        return Xc.T @ Xc / max(self.X.shape[0], 1)
 
     def design(self, values: dict) -> np.ndarray:
         """The design of NEW samples from ``{key: (n,) values}`` (numbers or category labels; NaN / None = missing: the row is NaN)."""
@@ -156,7 +162,7 @@ class Covariates:
                 x = np.asarray([np.nan if u is None else u for u in v], float)
                 if c.get("log"):
                     x = log10_or_nan(x, 0.0)
-                out[:, j] = (x - c["mean"]) / c["sd"]
+                out[:, j] = (x - c["mean"]) / c["sd"]                                 # ("mean" / "sd" hold the centre and the scale chosen; 0 / 1 when none)
             else:
                 lab = np.array(["" if u is None or (isinstance(u, float) and np.isnan(u)) else str(u) for u in v], dtype=object)
                 known = set(c["known"])
@@ -183,9 +189,9 @@ class Covariates:
         return np.flatnonzero(ind[:, [self.columns[j]["level"] for j in js].index(level)])
 
     def pure(self, key: str, level: str) -> np.ndarray:
-        """The design ``(L,)`` of a sample of category ``level`` of ``key`` whose other covariates are at the average of the training samples (0 in the centred design)."""
+        """The design ``(L,)`` of a sample of category ``level`` of ``key`` whose other covariates are at the average of the training samples."""
         self.level_rows(key, level)
-        x = np.zeros(self.L)
+        x = self.xbar().copy()
         for j, c in enumerate(self.columns):
             if c["key"] == key and c["kind"] == "level":
                 x[j] = float(c["level"] == level) - c["mean"]
@@ -358,10 +364,12 @@ def _fpca_basis(v, have: list, dom, resolved: dict, scale: float, share: float, 
 PREP_DEFAULT = {"centre": "mean", "scaling": "global", "log": False, "log_offset": None}
 
 
-def functional_mode(v, ids: list, basis_spec: dict | None, progress=None, ife: dict | None = None, basis_from: str = "gp", seed: int = 0, prep: dict | None = None
-                    ) -> tuple[Mode, np.ndarray, list]:
+def functional_mode(v, ids: list, basis_spec: dict | None, progress=None, ife: dict | None = None, basis_from: str = "gp", seed: int = 0, prep: dict | None = None,
+                    fitted: dict | None = None) -> tuple[Mode, np.ndarray, list]:
     """The mode of a FluoViz ``Variable`` (``fluoviz.analysis.fpca``) on the samples ``ids`` (a sample the variable does not have is a column of NaN).  ``basis_from``: ``gp`` (the
-    Gaussian-process prior) or ``fpca`` (a functional PCA of the samples; ``seed`` for its estimation).  ``prep``: ``log`` (the model sees ``log10(value + log_offset)``; the
+    Gaussian-process prior), ``fpca`` (a functional PCA of the samples; ``seed`` for its estimation) or ``fitted`` (the eigenfunctions of a functional PCA already fitted on the
+    Functional PCA page: ``fitted`` = ``{"rid", "eigenfunctions" (r, M), "eigenvalues", "cumulative", "basis", "n"}``, ``v`` is then the variable of that analysis, so the
+    domain and the pre-treatment are its own).  ``prep``: ``log`` (the model sees ``log10(value + log_offset)``; the
     offset is 1 % of the 99th percentile of the values when None), ``centre`` and ``scaling`` (``standardise_columns``).  Returns ``(mode, Y, notes)``."""
     from dataclasses import replace
 
@@ -404,6 +412,8 @@ def functional_mode(v, ids: list, basis_spec: dict | None, progress=None, ife: d
         notes.append(f"The {v.name} is not scaled: the default priors assume standardised values of order one (here the root mean square is "
                      f"{float(np.sqrt(np.nanmean(Z ** 2))):.3g}).")
     pointwise = prep["scaling"] in ("pointwise", "pareto")
+    if basis_from == "fitted":
+        return _fitted_mode(v, Z, mean, scale, w, dom, units, log, prep, basis_spec, fitted, ife, notes)
     vb = replace(vt, Y=vt.Y / scale[None]) if pointwise else vt                    # what the basis is estimated from: the data as the model sees them (up to one number)
     spec = {"kind": "gp", "kernel": "matern52", "structure": "separable", "lengths": "auto", "var_fraction": DEFAULT_SHARE, "k_max": K_CAP[dom.kind], **(basis_spec or {})}
     share = float(spec.get("var_fraction") or DEFAULT_SHARE)
@@ -444,22 +454,83 @@ def functional_mode(v, ids: list, basis_spec: dict | None, progress=None, ife: d
     return mode, Z, notes
 
 
+def _fitted_mode(v, Z, mean, scale, w, dom, units, log, prep, basis_spec, fitted, ife, notes) -> tuple[Mode, np.ndarray, list]:
+    """The mode of a function whose basis is the eigenfunctions of a fitted functional PCA (see ``functional_mode``): each times the square root of its eigenvalue, divided by the
+    scale of the data (so coefficients of order one give the variation of the samples); exactly ``n_basis`` of them or the fewest that keep the share asked (at most ``k_max``)."""
+    from fluoviz_addon_common.functional import pixel_element
+    if fitted is None:
+        raise MblfError(f"Choose the functional PCA whose eigenfunctions are the basis of the {v.name} (step 3).")
+    if log is not None:
+        raise MblfError(f"The basis of the {v.name} comes from the fitted functional PCA {fitted['rid']}, which did not use a log scale: switch the log of the {v.name} off "
+                        "(step 3), or fit the functional PCA on the data you want.")
+    spec = {"var_fraction": DEFAULT_SHARE, "k_max": K_CAP[dom.kind], **(basis_spec or {})}
+    share = float(spec.get("var_fraction") or DEFAULT_SHARE)
+    n_basis = spec.get("n_basis")
+    eig, ev, cum = np.asarray(fitted["eigenfunctions"], float), np.asarray(fitted["eigenvalues"], float), np.asarray(fitted["cumulative"], float)
+    if eig.shape[1] != dom.m:
+        raise MblfError(f"The eigenfunctions of {fitted['rid']} do not match the domain of the {v.name}: fit the functional PCA again.")
+    Bf, lam, captured = fpca_basis_matrix(eig, ev, cum, 1.0, share, n_basis, int(spec.get("k_max") or K_CAP[dom.kind]))
+    B = Bf / scale[:, None]
+    lam = lam / float(np.mean(scale ** 2))
+    k = B.shape[1]
+    r = int(ev.size)
+    if prep["centre"] != "mean":
+        with np.errstate(invalid="ignore"):
+            zbar = np.nan_to_num(np.nanmean(Z, axis=1))
+        if np.sqrt(np.sum(w * zbar ** 2)) > 1e-6:
+            B = np.column_stack([zbar, B])
+            lam = np.concatenate([[float(np.sum(w * zbar ** 2))], lam])
+            notes.append(f"The basis of the {v.name} also holds the mean of the samples (they are not centred on it).")
+    if n_basis and int(n_basis) > r:
+        notes.append(f"The functional PCA {fitted['rid']} has {r} components, so the basis has {r} functions, not the {int(n_basis)} asked.")
+    notes.append(f"The basis of the {v.name} is the first {k} eigenfunctions of the functional PCA {fitted['rid']} ({100 * captured:.1f} % of the variation of its {fitted['n']} "
+                 "samples), with its domain and pre-treatment. It was estimated from samples the model is (mostly) fitted to, so the bands are slightly optimistic.")
+    fe = pixel_element(v, mean)
+    if ife is not None and v.name == "absorbance":
+        fe.ife = ife
+    fb = fitted.get("basis") or {}
+    info = {"from": "fitted", "result": fitted["rid"], "kernel": fb.get("kernel"), "structure": fb.get("structure"), "lengths": [float(x) for x in fb.get("lengths") or []],
+            "lengths_source": "the fitted functional PCA", "share": share, "n_basis": int(B.shape[1]), "captured": captured, "n_available": r}
+    pinfo = {"centre": prep["centre"], "scaling": prep["scaling"]}
+    return Mode(v.name, dom.kind, B, mean, scale, w, dom.coords(), lam, captured, info, fe, [], [], units, log, [], pinfo), Z, notes
+
+
 VALUES_BASES = ("identity", "pca")
+VAR_CENTRES = {"mean": "the mean of the training samples", "median": "the median of the training samples", "none": "not centred"}
+VAR_SCALINGS = {"sd": "the standard deviation", "mad": "the median absolute deviation (times 1.4826: robust)", "none": "not scaled (its own units)"}
+VAR_PREP_DEFAULT = {"centre": "mean", "scaling": "sd"}
+
+
+def centre_scale(x: np.ndarray, centre: str, scaling: str, what: str) -> tuple[float, float]:
+    """``(c, s)`` of a variable's observed values: ``c`` the mean / median / 0, ``s`` the SD / robust MAD / 1 (``what`` names it in the errors)."""
+    x = np.asarray(x, float)
+    x = x[np.isfinite(x)]
+    c = float(np.median(x)) if centre == "median" else 0.0 if centre == "none" else float(np.mean(x))
+    if scaling == "none":
+        return c, 1.0
+    if scaling == "mad":
+        s = 1.4826 * float(np.median(np.abs(x - np.median(x))))
+        if not s > 0:
+            raise MblfError(f"{what} has a median absolute deviation of zero (more than half its values are equal): scale it by its standard deviation instead.")
+        return c, s
+    s = float(np.std(x, ddof=1)) if x.size > 1 else 0.0
+    return c, s
 
 
 def values_pca_basis(Z: np.ndarray, share: float, n_basis: int | None) -> tuple[np.ndarray, np.ndarray, float, int]:
-    """The principal-component basis of standardised values ``Z`` ``(M, N)`` (NaN = missing): the eigenvectors of their correlation matrix (pairwise complete; made positive
-    semi-definite), each times the square root of its eigenvalue; exactly ``n_basis`` of them or the fewest that keep ``share`` of the variance.  ``(B, lam, captured, r)``."""
+    """The principal-component basis of the values as the model sees them, ``Z`` ``(M, N)`` (NaN = missing): the eigenvectors of their covariance matrix (pairwise complete; the
+    correlations when every value is standardised by its SD; made positive semi-definite), each times the square root of its eigenvalue; exactly ``n_basis`` of them or the fewest
+    that keep ``share`` of the variance.  ``(B, lam, captured, r)``."""
     M = Z.shape[0]
-    C = np.eye(M)
     ok = np.isfinite(Z)
+    C = np.diag([float(np.var(Z[i, ok[i]], ddof=1)) for i in range(M)])
     for i in range(M):
         for j in range(i + 1, M):
             both = ok[i] & ok[j]
             if both.sum() < 3:
                 raise MblfError("Two of the values are measured together in fewer than 3 samples: their principal components cannot be estimated. Use one basis function per value.")
             a, b = Z[i, both], Z[j, both]
-            C[i, j] = C[j, i] = float(np.corrcoef(a, b)[0, 1]) if a.std() > 0 and b.std() > 0 else 0.0
+            C[i, j] = C[j, i] = float(np.cov(a, b)[0, 1])
     lam, V = np.linalg.eigh(C)
     order = np.argsort(lam)[::-1]
     lam, V = np.clip(lam[order], 0.0, None), V[:, order]
@@ -474,10 +545,11 @@ def values_pca_basis(Z: np.ndarray, share: float, n_basis: int | None) -> tuple[
     return V[:, :k] * np.sqrt(lam[:k])[None, :], lam[:k], float(cum[k - 1]), r
 
 
-def values_mode(columns: dict, labels: dict, ids: list, log_keys: list | None = None, basis: dict | None = None) -> tuple[Mode, np.ndarray, list]:
+def values_mode(columns: dict, labels: dict, ids: list, log_keys: list | None = None, basis: dict | None = None, var_prep: dict | None = None) -> tuple[Mode, np.ndarray, list]:
     """The ``values`` mode: ``columns`` ``{key: (N,) numbers}`` on the samples ``ids`` (NaN = missing).  A variable in ``log_keys`` is modelled as its ``log10`` (a value <= 0 is
     then missing).  Each variable is centred and divided by its standard deviation.  ``basis``: ``{"kind": "identity"}`` (default: every variable is one coefficient) or
-    ``{"kind": "pca", "var_fraction", "n_basis"}`` (the principal components of their correlations: fewer coefficients when the values move together)."""
+    ``{"kind": "pca", "var_fraction", "n_basis"}`` (the principal components of their correlations: fewer coefficients when the values move together).  ``var_prep``
+    ``{key: {"centre": mean | median | none, "scaling": sd | mad | none}}`` changes how a value is centred and scaled (default: the mean and the SD)."""
     keys = list(columns)
     if not keys:
         raise MblfError("Choose at least one variable to model.")
@@ -494,18 +566,31 @@ def values_mode(columns: dict, labels: dict, ids: list, log_keys: list | None = 
     for j, k in enumerate(keys):
         if has[:, j].sum() < 3:
             raise MblfError(f"The variable {labels.get(k, k)} has a value in fewer than 3 samples{' (with a log: above zero)' if logs[j] else ''}: it cannot be modelled.")
-    with np.errstate(invalid="ignore"):
-        mean = np.nanmean(Yt, axis=0)
-        sd = np.nanstd(Yt, axis=0, ddof=1)
-    if not (sd > 0).all():
-        bad = keys[int(np.flatnonzero(~(sd > 0))[0])]
-        raise MblfError(f"The variable {labels.get(bad, bad)} has the same value in every sample: there is nothing to model.")
+    preps = [{**VAR_PREP_DEFAULT, **((var_prep or {}).get(k) or {})} for k in keys]
+    mean, sd = np.zeros(len(keys)), np.ones(len(keys))
+    for j, k in enumerate(keys):
+        x = Yt[:, j][np.isfinite(Yt[:, j])]
+        if not (x.size > 1 and np.std(x) > 0):
+            raise MblfError(f"The variable {labels.get(k, k)} has the same value in every sample: there is nothing to model.")
+        mean[j], sd[j] = centre_scale(x, preps[j]["centre"], preps[j]["scaling"], f"The value {labels.get(k, k)}")
+        if preps[j] != VAR_PREP_DEFAULT:
+            notes.append(f"The value {labels.get(k, k)} is centred on {VAR_CENTRES[preps[j]['centre']]} and scaled by {VAR_SCALINGS[preps[j]['scaling']]}"
+                         + (" (the default priors assume values of order one)." if preps[j]["scaling"] == "none" else "."))
+    if any(p["centre"] == "none" for p in preps):
+        notes.append("A value that is not centred keeps its mean: the factors and each sample's own part have mean zero, so the model has to carry that mean with them.")
     Z = ((Yt - mean) / sd).T
     M = len(keys)
     b = {"kind": "identity", **(basis or {})}
     if b["kind"] == "pca" and M >= 2:
         share = float(b.get("var_fraction") or 0.95)
         B, lam, captured, r = values_pca_basis(Z, share, b.get("n_basis"))
+        if any(p["centre"] != "mean" for p in preps):                             # the components describe the values around THEIR mean: the basis also needs that mean
+            with np.errstate(invalid="ignore"):
+                zbar = np.nan_to_num(np.nanmean(Z, axis=1))
+            if np.sqrt(np.mean(zbar ** 2)) > 1e-6:
+                B = np.column_stack([zbar, B])
+                lam = np.concatenate([[float(np.mean(zbar ** 2))], lam])
+                notes.append("The basis of the values also holds their mean (some are not centred on it).")
         info = {"kind": "pca", "from": "pca", "share": share, "n_basis": int(B.shape[1]), "captured": captured, "n_available": r}
         notes.append(f"The values are described by {B.shape[1]} principal component(s) of their correlations ({100 * captured:.1f} % of their variance); what the components leave "
                      "out counts as noise of the values.")
@@ -514,14 +599,16 @@ def values_mode(columns: dict, labels: dict, ids: list, log_keys: list | None = 
             notes.append("A single value needs no principal components: it is its own basis function.")
         B, lam, captured, info = np.eye(M), None, None, {"kind": "identity", "n_basis": M}
     mode = Mode("values", "vector", B, mean, sd, np.full(M, 1.0 / M), np.arange(1, M + 1, dtype=float)[:, None], lam, captured,
-                info, None, keys, [labels.get(k, k) for k in keys], "", None, logs, {"centre": "mean", "scaling": "sd"})
+                info, None, keys, [labels.get(k, k) for k in keys], "", None, logs, {"centre": "mean", "scaling": "sd", "per_value": [dict(p) for p in preps]})
     return mode, Z, notes
 
 
 # ----------------------------------------------------------------------------- covariates
-def covariates_from(columns: dict, labels: dict, ids: list, log_keys: list | None = None) -> tuple[Covariates, np.ndarray, list]:
+def covariates_from(columns: dict, labels: dict, ids: list, log_keys: list | None = None, var_prep: dict | None = None) -> tuple[Covariates, np.ndarray, list]:
     """The covariates ``columns`` ``{key: (N,) numbers or category labels}`` -> ``(Covariates, keep (N,), notes)``; ``keep`` is False for samples with a missing covariate (they
-    cannot be used: the model conditions the scores on every covariate).  A number in ``log_keys`` enters as its ``log10`` (a sample with a value of zero or below is left out)."""
+    cannot be used: the model conditions the scores on every covariate).  A number in ``log_keys`` enters as its ``log10`` (a sample with a value of zero or below is left out).
+    ``var_prep`` ``{key: {"centre", "scaling"}}``: a number is centred on its mean (default) / median / not, and divided by its SD (default) / robust MAD / nothing (its effect is
+    then per unit); a category's indicators are centred (``mean``, default) or kept 0 / 1 (``none``: the reference category is then the zero of the design)."""
     keys = list(columns)
     n = len(ids)
     keep = np.ones(n, bool)
@@ -551,13 +638,15 @@ def covariates_from(columns: dict, labels: dict, ids: list, log_keys: list | Non
     for k, (kind, x) in zip(keys, parsed):
         xk = x[keep]
         lab = labels.get(k, k)
+        pr = {**VAR_PREP_DEFAULT, **((var_prep or {}).get(k) or {})}
         if kind == "numeric":
-            mu, sd = float(np.mean(xk)), float(np.std(xk, ddof=1)) if xk.size > 1 else 0.0
-            if not sd > 0:
+            if not (xk.size > 1 and np.std(xk) > 0):
                 notes.append(f"The covariate {lab} has the same value in every sample used: it was left out.")
                 continue
+            mu, sd = centre_scale(xk, pr["centre"], pr["scaling"], f"The covariate {lab}")
             lg = k in (log_keys or [])
-            cols.append({"key": k, "label": f"log10 {lab}" if lg else lab, "kind": "numeric", "level": None, "reference": None, "mean": mu, "sd": sd, "known": [], "log": lg})
+            cols.append({"key": k, "label": f"log10 {lab}" if lg else lab, "kind": "numeric", "level": None, "reference": None, "mean": mu, "sd": sd, "known": [], "log": lg,
+                         "centre": pr["centre"], "scaling": pr["scaling"]})
             design.append((x - mu) / sd)
         else:
             levels = sorted(set(xk.tolist()), key=lambda s: (-(xk == s).sum(), s))
@@ -567,12 +656,19 @@ def covariates_from(columns: dict, labels: dict, ids: list, log_keys: list | Non
             if len(levels) > 12:
                 raise MblfError(f"The covariate {lab} has {len(levels)} categories: at most 12 can be used (merge some, or choose another variable).")
             ref = levels[0]
+            if pr["centre"] not in ("mean", "none"):
+                raise MblfError(f"The covariate {lab} is a category: its indicators are either centred ('mean') or kept 0 / 1 ('none').")
             for lev in levels[1:]:
                 ind = (xk == lev).astype(float)
-                mu = float(ind.mean())
-                cols.append({"key": k, "label": f"{lab} = {lev}", "kind": "level", "level": lev, "reference": ref, "mean": mu, "sd": 1.0, "known": list(levels)})
+                mu = float(ind.mean()) if pr["centre"] == "mean" else 0.0
+                cols.append({"key": k, "label": f"{lab} = {lev}", "kind": "level", "level": lev, "reference": ref, "mean": mu, "sd": 1.0, "known": list(levels),
+                             "centre": pr["centre"], "scaling": "none"})
                 design.append((x == lev).astype(float) - mu)
     if not cols:
         raise MblfError("None of the covariates chosen varies between the samples: switch the covariates off, or choose others.")
+    off = sorted({c["label"].split(" = ")[0] for c in cols if c.get("centre") != "mean"})
+    if off:
+        notes.append(f"Not centred on their mean: {', '.join(off)}. The data are centred on the mean of the samples, so the model then ties that mean to the samples whose "
+                     "covariates are at the centre chosen (a category: the reference); the default (the mean) keeps the covariates from shifting the mean of the data.")
     X = np.column_stack(design)[keep]
     return Covariates(keys, [labels.get(k, k) for k in keys], cols, X), keep, notes

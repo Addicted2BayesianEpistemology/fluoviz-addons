@@ -18,19 +18,23 @@ spec = importlib.util.spec_from_file_location("build_addon", REPO / "scripts" / 
 build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build)
 IDS = ("autoencoders", "common", "mblf", "som")
-OLD = {"autoencoders": "1.1.0", "common": "1.0.0", "som": "1.0.0"}             # what release v1.1.0 offered, for FluoViz >= 1.1.0
+# what earlier releases offered: v1.1.0 for FluoViz >= 1.1.0, v1.3.0 for FluoViz >= 1.2.0 (each release keeps the entries of the one before)
+GENERATIONS = [({"autoencoders": "1.1.0", "common": "1.0.0", "som": "1.0.0"}, ">=1.1.0,<2"),
+               ({"autoencoders": "1.1.2", "common": "1.0.1", "som": "1.0.2", "mblf": "1.1.0"}, ">=1.2.0,<2")]
+NOW = ">=1.3.0,<2"                                                              # what the add-ons (and the shared add-on) ask for today
 
 
-def _old_release(tmp: Path) -> Path:
-    """A stand-in for release v1.1.0: today's add-ons (minus mblf) renumbered to the old versions and asking for FluoViz >= 1.1.0."""
-    src, out = tmp / "old-src", tmp / "old"
-    entries = []
-    for aid, ver in OLD.items():
+def _release(tmp: Path, versions: dict, needs: str, keep: Path | None, name: str) -> Path:
+    """A stand-in for an earlier release: today's add-ons renumbered to its versions, asking for ``needs``, built with the release before it kept."""
+    src, out = tmp / f"{name}-src", tmp / name
+    for aid, ver in versions.items():
         shutil.copytree(REPO / "addons" / aid, src / aid, ignore=shutil.ignore_patterns("tests", "__pycache__"))
         m = json.loads((src / aid / "manifest.json").read_text(encoding="utf-8"))
-        m.update(version=ver, requires_fluoviz=">=1.1.0,<2")
+        m.update(version=ver, requires_fluoviz=needs)
         (src / aid / "manifest.json").write_text(json.dumps(m), encoding="utf-8")
-        entries.append(build.build_one(src / aid, out))
+    entries = [build.build_one(src / aid, out) for aid in versions]
+    if keep is not None:
+        entries = build.merge(entries, build.kept_entries(keep, out))
     (out / "index.json").write_text(json.dumps({"schema": 1, "addons": entries}), encoding="utf-8")
     return out
 
@@ -38,9 +42,11 @@ def _old_release(tmp: Path) -> Path:
 @pytest.fixture(scope="module")
 def release(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("rel")
-    old = _old_release(tmp)
+    keep = None
+    for g, (versions, needs) in enumerate(GENERATIONS):
+        keep = _release(tmp, versions, needs, keep, f"gen{g}")
     new = tmp / "new"
-    assert build.main(["--out", str(new), "--keep-from", str(old)]) == 0
+    assert build.main(["--out", str(new), "--keep-from", str(keep)]) == 0
     return new
 
 
@@ -49,25 +55,27 @@ def test_the_new_list_keeps_the_old_versions_with_their_zips(release):
     have = {(e["id"], e["version"]): e for e in idx["addons"]}
     for aid in IDS:
         cur = json.loads((REPO / "addons" / aid / "manifest.json").read_text(encoding="utf-8"))
-        assert (aid, cur["version"]) in have and have[(aid, cur["version"])]["requires_fluoviz"] == ">=1.2.0,<2"
-    for aid, ver in OLD.items():
-        assert have[(aid, ver)]["requires_fluoviz"] == ">=1.1.0,<2"
-    assert len(idx["addons"]) == len(IDS) + len(OLD)
+        assert (aid, cur["version"]) in have and have[(aid, cur["version"])]["requires_fluoviz"] == NOW
+    for versions, needs in GENERATIONS:
+        for aid, ver in versions.items():
+            assert have[(aid, ver)]["requires_fluoviz"] == needs
+    assert len(idx["addons"]) == len({(a, v) for g, _ in GENERATIONS for a, v in g.items()} | {(a, json.loads((REPO / "addons" / a / "manifest.json").read_text())["version"]) for a in IDS})
     for e in idx["addons"]:
         assert hashlib.sha256((release / e["url"]).read_bytes()).hexdigest() == e["sha256"], e["url"]
 
 
 @pytest.mark.parametrize("fluoviz, want", [("1.1.0", {"autoencoders": "1.1.0", "common": "1.0.0", "som": "1.0.0"}),
-                                          ("1.2.0", {"autoencoders": "1.1.2", "common": "1.0.1", "som": "1.0.2", "mblf": "1.1.0"})])
+                                          ("1.2.0", {"autoencoders": "1.1.2", "common": "1.0.1", "som": "1.0.2", "mblf": "1.1.0"}),
+                                          ("1.3.0", {"autoencoders": "1.2.0", "common": "1.0.2", "som": "1.1.0", "mblf": "1.2.0"})])
 def test_each_fluoviz_is_offered_the_newest_version_it_can_run(release, fluoviz, want):
     idx = parse_index(json.loads((release / "index.json").read_text(encoding="utf-8")), None)
     offered = {e.id: e for e in idx.latest(fluoviz)}
     for aid, ver in want.items():
         e = offered[aid]
         assert e.version == ver and all(e.availability(fluoviz)[:2]), (fluoviz, aid, e.version)
-    if fluoviz == "1.1.0":                                                  # mblf exists only for 1.2.0: listed, but with the reason in words
+    if fluoviz == "1.1.0":                                                  # mblf exists only for 1.2.0 and newer: listed, but with the reason in words
         ok, fits, why = offered["mblf"].availability(fluoviz)
-        assert not fits and "needs FluoViz >=1.2.0,<2" in why and "Update FluoViz" in why
+        assert not fits and "needs FluoViz" in why and "Update FluoViz" in why
     # the shared add-on that an add-on needs is resolved for the same FluoViz
     for aid in ("autoencoders", "som"):
         need = offered[aid].manifest.requires_addons if hasattr(offered[aid].manifest, "requires_addons") else offered[aid].manifest["requires_addons"]

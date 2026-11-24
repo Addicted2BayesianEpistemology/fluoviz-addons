@@ -113,6 +113,9 @@ def test_planes(fit_gp):
     assert "HIX" in cat and "a254" in cat or "E2_E3" in cat
     ix = planes.index_plane(prep.frame, funcs, "total_fluorescence", [f"u{j}" for j in range(M)])
     assert ix["values"].shape == (M,)
+    assert cat[0] == planes.TRILINEAR
+    tri = planes.index_plane(prep.frame, funcs, planes.TRILINEAR, [f"u{j}" for j in range(M)])
+    assert tri["values"].shape == (M,) and np.all((tri["values"] >= 0) & (tri["values"] <= 1)) and tri["units"] == "share"
     meta = np.where(np.arange(40) % 2 == 0, "a", "b")
     vp = planes.variable_plane(meta, fit.asg["c1"], M, fit.lattice.d2, "site")
     assert vp["kind"] == "category" and vp["categories"] == ["a", "b"]

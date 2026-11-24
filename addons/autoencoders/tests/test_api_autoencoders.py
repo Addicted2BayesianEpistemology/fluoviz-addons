@@ -392,6 +392,9 @@ def test_sensitivity_images(world):
     at_mean, mag = np.asarray(f["at_mean"], float), np.asarray(f["magnitude"], float)
     assert at_mean.shape == mag.shape == (3, 16, 24) and np.isclose(sum(f["share"]), 1.0) and (np.nan_to_num(mag) >= 0).all()
     assert np.asarray(s["absorbance"]["at_mean"]).shape == (3, 40) and "Code z1 changes the fluorescence mostly around excitation" in s["words"] and "absorbance mostly around" in s["words"]
+    t = f["trilinear"]                                                                  # how far the effect of every code is from one emission x excitation pattern
+    assert np.asarray(t["share"]).shape == (3,) and np.all((np.asarray(t["share"]) >= 0) & (np.asarray(t["share"]) <= 1)) and np.asarray(t["em"]).shape == (3, 24)
+    assert "trilinear" not in s["absorbance"]
     # for the exact linear network the effect of a code is the same everywhere: at the mean equals the average magnitude of a signed direction
     assert np.allclose(np.abs(at_mean), mag, equal_nan=True, rtol=1e-3, atol=1e-6)
 

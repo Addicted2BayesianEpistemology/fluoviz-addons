@@ -55,4 +55,7 @@ Your **projects are not touched**. The page and the guide disappear from the men
 
 An autoencoder is far more flexible than a few dozen EEMs can support. Look at the numbers for held-out samples and at the comparison with PCA before anything else, never use the *synthetic* samples a variational autoencoder draws as if they were measurements, and give a code a name only after you have looked at what it does. The guide says how.
 
-Version 1.1.2. Needs FluoViz 1.2.0 or newer (its searchable pickers); on an older FluoViz the Install button offers version 1.1.0 instead.
+With FluoViz 1.3 the Gaussian-process basis can be a tensor product of one-dimensional bases (every building block an emission profile times an excitation profile, as in
+PARAFAC), and the sensitivity of the output to each code says how close its effect is to one fluorophore (its trilinear share).
+
+Version 1.2.0. Needs FluoViz 1.3.0 or newer; on FluoViz 1.2 the Install button offers version 1.1.2, on 1.1 version 1.1.0.

@@ -117,12 +117,19 @@ def feature_plane(frame, funcs: dict, spec: dict) -> dict:
     raise SomError("Unknown kind of feature.")
 
 
+TRILINEAR = "trilinear_share"
+
+
 def index_catalogue(frame) -> list:
     """The fluorescence and absorbance indices that can be computed for the prototypes of this map."""
     from fluoviz.analysis.features import list_indices
     has_eem = _surface_block(frame) is not None
     has_abs = _curve_block(frame) is not None
     out = []
+    if has_eem:
+        out.append({"key": TRILINEAR, "index": TRILINEAR, "suffix": "", "name": "Trilinear share (one fluorophore?)", "group": "Structure of the EEM", "kind": "numeric",
+                    "description": "How much of the prototype's EEM ONE emission profile times ONE excitation profile holds (the structure PARAFAC assumes for a fluorophore), fitted on "
+                                   "the pixels that exist: near 1, the prototype looks like a single fluorophore (or several with the same proportions everywhere)."})
     for d in list_indices():
         req = set(d.get("requires") or [])
         if any(r.startswith("meta:") for r in req):
@@ -145,6 +152,10 @@ def index_plane(frame, funcs: dict, key: str, ids: list) -> dict:
         raise SomError(f"The index '{key}' cannot be computed for this map (it needs data the map does not read).")
     c = cat[key]
     sb, cb = _surface_block(frame), _curve_block(frame)
+    if key == TRILINEAR:
+        from fluoviz.analysis.fpca.trilinear import rank_one
+        v = rank_one(sb.domain, np.asarray(funcs[sb.name], float))["share"]
+        return {"key": f"index:{key}", "label": c["name"], "values": v, "kind": "numeric", "signed": False, "units": "share", "words": c["description"]}
     view = None
     if sb is not None:
         view = {"X": sb.domain.embed(funcs[sb.name]), "ex": np.asarray(sb.element.axes[1], float), "em": np.asarray(sb.element.axes[0], float), "ids": list(ids), "units": str(sb.element.units or "")}

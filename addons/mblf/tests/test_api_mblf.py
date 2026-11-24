@@ -219,7 +219,8 @@ PREP = {**INP,
         "fluorescence": {**INP["fluorescence"], "log": True, "centre": "median", "scaling": "pareto"},
         "absorbance": {**INP["absorbance"], "scaling": "pointwise"},
         "values": ["meta:doc", "meta:temp"], "covariates": ["meta:site", "meta:season"], "log_keys": ["meta:doc"],
-        "values_basis": {"kind": "pca", "n_basis": 1}}
+        "values_basis": {"kind": "pca", "n_basis": 1},
+        "var_prep": {"meta:temp": {"centre": "median", "scaling": "mad"}, "meta:site": {"centre": "none"}}}
 
 
 def test_the_transforms_are_checked_in_plain_english(world):
@@ -232,6 +233,10 @@ def test_the_transforms_are_checked_in_plain_english(world):
     assert r.status_code == 400 and "offset of the log" in msg(r)
     r = bad(log_keys=["meta:temp"])
     assert r.status_code == 400 and "neither a value to model nor a covariate" in msg(r)
+    r = bad(var_prep={"meta:temp": {"centre": "mean"}})
+    assert r.status_code == 400 and "neither a value to model nor a covariate" in msg(r)
+    r = bad(var_prep={"meta:doc": {"scaling": "range"}})
+    assert r.status_code == 400 and "scaling of meta:doc" in msg(r)
     r = bad(values_basis={"kind": "ica"})
     assert r.status_code == 400 and "'identity'" in msg(r)
     j = A.run_job(world, f"{B}/check", {"input": {**INP, "log_keys": ["meta:site"]}})
@@ -246,6 +251,9 @@ def test_the_check_with_a_log_other_scalings_and_principal_components_of_the_val
     assert any("log10(fluorescence" in n for n in d["notes"]) and any("principal component" in n for n in d["notes"])
     cols = d["covariates"]["columns"]
     assert sum(c["key"] == "meta:season" for c in cols) == 2
+    site = next(c for c in cols if c["key"] == "meta:site")
+    assert site["centre"] == "none" and site["mean"] == 0.0 and any("Not centred on their mean: site" in n for n in d["notes"])
+    assert any("temp is centred on the median" in n and "median absolute deviation" in n for n in d["notes"])
 
 
 @pytest.fixture(scope="module")
@@ -310,3 +318,53 @@ def test_the_saved_model_reads_new_samples_on_the_log_scale(world, fitted_prep):
     assert np.allclose(np.asarray(r.variables["mblf_f1"], float), np.asarray(res.variables["mblf_f1"], float)[pos], atol=1e-6)
     lo, hi, mid_ = (np.asarray(r.variables[k], float) for k in ("mblf_pred_doc_lo", "mblf_pred_doc_hi", "mblf_pred_doc"))
     assert np.all(lo > 0) and np.all(lo < mid_) and np.all(mid_ < hi)                      # back from the log: in the units of the DOC
+
+
+# ----------------------------------------------------------------------------- the basis of a functional PCA fitted on the Functional PCA page; tensor-product bases
+def test_a_basis_from_a_fitted_functional_pca_follows_its_domain_and_pre_treatment(world):
+    fit = A.done(world, "/api/fpca/fit", {"variables": ["fluorescence", "absorbance"], "fluorescence": {"transform": "l2", "min_coverage": 0.9, "basis": {"kind": "gp", "lengths": [60.0, 40.0]}},
+                                          "absorbance": {"transform": "none", "processed": False, "basis": {"kind": "gp", "lengths": [40.0]}}, "validation": {"n_boot": 10, "cv_repeats": 1}},
+                 timeout=600)
+    rid = fit["result"]["id"]
+    inp = {**INP, "fpca_result": rid, "fluorescence": {**INP["fluorescence"], "basis_from": "fitted"}, "absorbance": {**INP["absorbance"], "basis_from": "fitted"}}
+    d = A.done(world, f"{B}/check", {"input": inp, **QUICK})
+    fl, ab = d["modes"][0], d["modes"][1]
+    assert fl["basis"]["from"] == "fitted" and fl["basis"]["result"] == rid and ab["basis"]["from"] == "fitted" and 1 <= fl["n_basis"] <= 12
+    assert any(f"functional PCA {rid}" in n for n in d["notes"])
+    r = world.post(f"{B}/check", json={"input": {**inp, "fpca_result": None}})
+    assert r.status_code == 400 and "Choose the fitted functional PCA" in msg(r)
+    r = world.post(f"{B}/check", json={"input": {**inp, "fluorescence": {**inp["fluorescence"], "log": True}}})
+    assert r.status_code == 400 and "did not use a log scale" in msg(r)
+    j = A.run_job(world, f"{B}/check", {"input": {**inp, "fpca_result": "pca-77"}})
+    assert j["status"] == "error" and "There is no result 'pca-77'" in j["error"]
+
+
+def test_a_tensor_product_basis_for_the_eem(world):
+    inp = {**INP, "fluorescence": {**INP["fluorescence"], "basis": {**INP["fluorescence"]["basis"], "structure": "tensor", "k_max": 30}}}
+    d = A.done(world, f"{B}/check", {"input": inp, **QUICK})
+    assert d["modes"][0]["basis"]["structure"] == "tensor" and 3 <= d["modes"][0]["n_basis"] <= 30
+
+
+@needs_engine
+def test_a_model_on_a_fitted_functional_pca_fits_and_its_saved_model_reads_new_samples(world):
+    fits = [r for r in world.S.project.results.values() if r.kind == "fpca"]
+    rid = fits[-1].id if fits else A.done(world, "/api/fpca/fit", {"variables": ["fluorescence"], "fluorescence": {"transform": "l2", "min_coverage": 0.9, "basis": {"kind": "gp", "lengths": [60.0, 40.0]}},
+                                                                   "validation": {"n_boot": 10, "cv_repeats": 1}}, timeout=600)["result"]["id"]
+    inp = {**INP, "variables": ["fluorescence"], "fpca_result": rid, "fluorescence": {**INP["fluorescence"], "basis_from": "fitted"}}
+    j = A.run_job(world, f"{B}/fit", {"input": inp, **QUICK})
+    assert j["status"] == "done", j
+    mrid = A.decode(j["result"])["rid"]
+    pl = A.decode(world.get(f"{B}/{mrid}").json())["payload"]
+    assert pl["modes"][0]["basis"]["from"] == "fitted" and "fitted beforehand" in world.get(f"{B}/{mrid}/methods").json()["text"]
+    j = A.run_job(world, "/api/models", {"result": mrid, "title": "Latent factors on a fitted fPCA"})
+    assert j["status"] == "done", j                                                        # (freezing re-reads the training samples through the fPCA's pre-treatment)
+
+
+@needs_engine
+def test_every_factor_says_how_trilinear_its_eem_loading_is(world, fitted):
+    pl = A.decode(world.get(f"{B}/{fitted}").json())["payload"]
+    for fac in pl["factors"]:
+        fl = next(m for m in fac["modes"] if m["mode"] == "fluorescence")
+        t = fl["trilinear"]
+        assert 0 <= t["lower"] <= t["mean"] <= t["upper"] <= 1 and np.asarray(t["em"]).shape == (24,) and np.asarray(t["ex"]).shape == (16,)
+        assert "trilinear" not in next(m for m in fac["modes"] if m["mode"] == "absorbance")

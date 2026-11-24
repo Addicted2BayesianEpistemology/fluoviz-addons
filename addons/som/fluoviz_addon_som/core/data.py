@@ -341,7 +341,7 @@ def _functional_block(el, v, ife):
     Z = np.asarray(el.Z, float)
     msq = F.total_variance(Z, v.name, SomError, NOTHING)                # total variance of the variable: mean squared L2 norm of the centred samples
     notes: list = []
-    prior = F.gp_prior_scale(el, Z, notes) if el.rep.kind == "gp" else None
+    prior = F.gp_prior_scale(el, Z, notes) if (el.rep.kind == "gp" and el.rep.G is None) else None   # (a tensor product on a masked domain is not orthonormal)
     fe = element_freeze(v.name, el, el, v, ife if v.name == "absorbance" else None)
     return Z, msq, fe, prior, notes
 

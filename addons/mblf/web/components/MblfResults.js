@@ -89,9 +89,21 @@ const MblfOverview = {
 };
 
 // ---------------------------------------------------------------- factors
+const MblfProfile = {
+  name: 'MblfProfile',
+  components: { PlotlyChart, ChartCard },
+  props: { x: { required: true }, y: { required: true }, title: String, xTitle: String },
+  setup(props) {
+    const traces = computed(() => { themeState.version; return [{ x: arr(nd(props.x)), y: arr(nd(props.y)), type: 'scatter', mode: 'lines', line: { width: 2, color: tokens().series[0] }, name: 'profile', hovertemplate: '%{x:.0f} nm: %{y:.3f}<extra></extra>' }]; });
+    const layout = computed(() => ({ xaxis: { title: props.xTitle }, yaxis: { title: 'profile (unit norm)', zeroline: true }, margin: { t: 10, r: 10 }, showlegend: false }));
+    return { traces, layout };
+  },
+  template: `<ChartCard :title="title" :data="traces" flat><PlotlyChart :data="traces" :layout="layout" :height="200"/></ChartCard>`,
+};
+
 const MblfFactors = {
   name: 'MblfFactors',
-  components: { Seg, Switch, MblfModeView, MblfInterval, Callout },
+  components: { Seg, Switch, MblfModeView, MblfInterval, Callout, MblfProfile },
   setup() {
     const p = computed(() => fp.mb.res.p);
     const V = computed(() => fp.mb.view);
@@ -108,6 +120,14 @@ const MblfFactors = {
     <p class="small">Factor {{ fac.factor }} carries <b>{{ ivlPct(fac.share) }}</b> of the shared variation (posterior mean and 90 % interval).</p>
     <div class="mblf-grid">
       <MblfModeView v-for="m in fac.modes" :key="m.mode" :mode="modeOf(m.mode)" :summary="m" :title="modeLabel(modeOf(m.mode))" signed :simultaneous="V.simultaneous" :units="modeOf(m.mode).units" :export-name="'factor' + fac.factor + '-' + m.mode"/>
+    </div>
+    <div class="card flat" v-for="m in fac.modes.filter((x) => x.trilinear)" :key="'tri-' + m.mode" data-mblf-trilinear>
+      <div class="card-head"><h3>Is it one fluorophore? The trilinear share of the EEM loading</h3></div>
+      <div class="card-body col gap-8">
+        <p class="small">The best product of ONE emission profile and ONE excitation profile (the structure PARAFAC assumes for a fluorophore), fitted on the pixels that exist, holds <b>{{ ivlPct(m.trilinear) }}</b> of the EEM loading of factor {{ fac.factor }} (posterior mean and 90 % interval over the draws). The model does not impose it: it is checked. Near 100 %: the factor behaves like one fluorophore (or several that always change together); lower: it mixes patterns with different spectra.</p>
+        <div class="fp-two"><MblfProfile :x="m.trilinear.em_axis" :y="m.trilinear.em" title="Emission profile (of the posterior-mean loading)" x-title="Emission wavelength (nm)"/>
+          <MblfProfile :x="m.trilinear.ex_axis" :y="m.trilinear.ex" title="Excitation profile" x-title="Excitation wavelength (nm)"/></div>
+      </div>
     </div>
   </div>`,
 };
@@ -226,22 +246,45 @@ const MblfCovariates = {
   setup() {
     const p = computed(() => fp.mb.res.p);
     const C = computed(() => p.value.covariates);
-    const which = computed({ get: () => Math.min(fp.mb.view.cov || 0, (C.value ? C.value.effects.length : 1) - 1), set: (v) => { fp.mb.view.cov = v; fp.mb.view.covVs = null; } });
-    const options = computed(() => (C.value ? C.value.effects.map((e, i) => ({ value: i, label: e.column.label })) : []));
-    const eff = computed(() => (C.value ? C.value.effects[which.value] : null));
-    const col = computed(() => (eff.value ? eff.value.column : null));
-    const others = computed(() => (col.value && col.value.kind === 'level' ? col.value.known.filter((l) => l !== col.value.level) : []));
-    const vs = computed({ get: () => (col.value && others.value.includes(fp.mb.view.covVs) ? fp.mb.view.covVs : (col.value ? col.value.reference : null)), set: (v) => { fp.mb.view.covVs = v; } });
-    const cmp = computed(() => (col.value && col.value.kind === 'level' && vs.value !== col.value.reference ? contrast(col.value.key, col.value.level, vs.value) : null));
-    const shown = computed(() => (cmp.value ? (cmp.value.data ? cmp.value.data.modes : null) : eff.value ? eff.value.modes : null));
-    const name = computed(() => (col.value ? col.value.label.split(' = ')[0] : ''));
-    const words = computed(() => {
-      const c = col.value;
-      if (!c) return '';
-      return c.kind === 'numeric' ? `The change of every mode when ${c.label} is one standard deviation (${c.sd.toPrecision(3)}) higher, everything else equal.`
-        : `The difference of every mode between ${name.value} = ${c.level} and ${name.value} = ${vs.value}${vs.value === c.reference ? ' (the reference)' : ''}, everything else equal.`;
+    // one button per number, and one per category of every category covariate (the reference included)
+    const items = computed(() => {
+      const out = [];
+      if (!C.value) return out;
+      C.value.effects.forEach((e, i) => {
+        const c = e.column;
+        if (c.kind === 'numeric') out.push({ value: `n:${i}`, label: c.label, kind: 'numeric', eff: i, column: c });
+        else if (!out.some((o) => o.key === c.key)) {
+          const name = c.label.split(' = ')[0];
+          for (const lev of c.known) out.push({ value: `c:${c.key}|${lev}`, label: `${name} = ${lev}${lev === c.reference ? ' (reference)' : ''}`, kind: 'level', key: c.key, name, level: lev, reference: c.reference, known: c.known });
+        }
+      });
+      return out;
     });
-    return { p, C, which, options, eff, col, others, vs, cmp, shown, words, modeOf: (n) => modeOf(fp.mb.res, n), modeLabel };
+    const options = computed(() => items.value.map((o) => ({ value: o.value, label: o.label })));
+    const item = computed(() => items.value.find((o) => o.value === fp.mb.view.covSel) || items.value[0] || null);
+    const which = computed({ get: () => (item.value ? item.value.value : null), set: (v) => { fp.mb.view.covSel = v; fp.mb.view.covVs = null; } });
+    const others = computed(() => (item.value && item.value.kind === 'level' ? item.value.known.filter((l) => l !== item.value.level) : []));
+    const vs = computed({ get: () => (others.value.includes(fp.mb.view.covVs) ? fp.mb.view.covVs : (item.value && item.value.level !== item.value.reference ? item.value.reference : others.value[0] || null)),
+      set: (v) => { fp.mb.view.covVs = v; } });
+    const effOf = (level) => C.value.effects.find((e) => e.column.kind === 'level' && e.column.key === item.value.key && e.column.level === level);
+    const cmp = computed(() => (item.value && item.value.kind === 'level' && vs.value !== item.value.reference ? contrast(item.value.key, item.value.level, vs.value) : null));
+    const shown = computed(() => {
+      const it = item.value;
+      if (!it) return null;
+      if (it.kind === 'numeric') return C.value.effects[it.eff].modes;
+      if (cmp.value) return cmp.value.data ? cmp.value.data.modes : null;
+      return effOf(it.level).modes;
+    });
+    const words = computed(() => {
+      const it = item.value;
+      if (!it) return '';
+      if (it.kind === 'numeric') {
+        const c = it.column, step = c.scaling === 'none' ? 'one unit' : c.scaling === 'mad' ? `one robust standard deviation (MAD: ${c.sd.toPrecision(3)})` : `one standard deviation (${c.sd.toPrecision(3)})`;
+        return `The change of every mode when ${c.label} is ${step} higher, everything else equal.`;
+      }
+      return `The difference of every mode between ${it.name} = ${it.level} and ${it.name} = ${vs.value}${vs.value === it.reference ? ' (the reference)' : ''}, everything else equal.`;
+    });
+    return { p, C, which, options, item, others, vs, cmp, shown, words, modeOf: (n) => modeOf(fp.mb.res, n), modeLabel };
   },
   template: `
   <div class="col gap-12" data-mblf-covariates>
@@ -251,7 +294,7 @@ const MblfCovariates = {
       <table class="table"><thead><tr><th>Mode</th><th>Share of the variation the covariates explain (90 % interval)</th></tr></thead>
         <tbody><tr v-for="s in C.shares" :key="s.mode"><td>{{ modeLabel(modeOf(s.mode)) }}</td><td><MblfInterval :value="s"/></td></tr></tbody></table>
       <div class="row wrap"><Seg v-model="which" :options="options" small data-mblf-cov/></div>
-      <div class="row wrap" v-if="col && col.kind === 'level'"><Field label="Compared with" help="Any other category of the same covariate: the difference between the two, with its uncertainty. The reference is just the most frequent category."><select class="select sm" :value="vs" @change="vs = $event.target.value" data-mblf-cov-vs><option v-for="l in others" :key="l" :value="l">{{ l }}{{ l === col.reference ? ' (reference)' : '' }}</option></select></Field></div>
+      <div class="row wrap" v-if="item && item.kind === 'level'"><Field label="Compared with" help="Any other category of the same covariate: the difference between the two, with its uncertainty. The reference is just the most frequent category."><select class="select sm" :value="vs" @change="vs = $event.target.value" data-mblf-cov-vs><option v-for="l in others" :key="l" :value="l">{{ l }}{{ l === item.reference ? ' (reference)' : '' }}</option></select></Field></div>
       <p class="small" data-mblf-cov-words>{{ words }}</p>
       <p class="muted small" v-if="cmp && cmp.busy">Comparing the two categories …</p>
       <Callout kind="critical" v-if="cmp && cmp.error">{{ cmp.error }}</Callout>

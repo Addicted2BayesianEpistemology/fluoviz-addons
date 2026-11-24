@@ -27,14 +27,21 @@ extremely slow: the page asks you to switch on **Allow more than 150 basis funct
 
 **What the model sees (step 3).** Every EEM and spectrum can be put on a **log scale** (log10 of the value plus a small offset: changes by a factor become equal steps,
 the brightest peaks stop dominating), then **centred** (mean, median or not at all) and **scaled** (one number for the whole mode, Pareto, every point by its own spread, or not
-at all).  In step 1 a value or a numeric covariate can be put on the log scale with its **log** box; a predicted value of a saved model is given back in its own units.  With two
-values or more, **Principal components** describes them with fewer coefficients when they move together.
+at all).  In step 1 a value or a numeric covariate can be put on the log scale with its **log** box; a predicted value of a saved model is given back in its own units.  In step 1,
+**How they enter the model** sets, for every value and covariate, how it is centred (mean, median, not at all; a category's indicators centred or 0 / 1) and scaled (standard
+deviation, robust MAD, not at all: a covariate's effect then reads per unit).  With two values or more, **Principal components** describes them with fewer coefficients when they
+move together.
 
 **Reading the results.** Values of very different size (a total fluorescence next to a pH) are drawn in standard deviations of each value, or each in its own units on its own
-panel.  With a category among the covariates (site, season), **Compared with** shows the difference between ANY two categories, and the tab **Categories** shows each category as a
+panel.  With a category among the covariates (site, season), every category, the reference included, can be chosen, and **Compared with** shows the difference between ANY two categories, and the tab **Categories** shows each category as a
 sample: **The category alone** (the other covariates at the average of all the samples: the pattern of the category itself) or **Its typical member** (the other covariates as
 they are in that category), with the expected EEM or spectrum and what a new member would look like.  A prediction of a sample that has the target also shows **What the
 prediction missed**: the measured minus the predicted, also in predictive standard deviations.
+
+**A functional PCA you fitted, tensor bases, one fluorophore?** In step 3 the basis can also come from **A functional PCA you fitted** on the Functional PCA page: the
+model then takes that analysis' domain and pre-treatment, and its eigenfunctions as building blocks.  With FluoViz 1.3 the Gaussian-process basis can be a **tensor product of
+1-D bases** (every building block an emission profile times an excitation profile, as in PARAFAC).  The Factors tab says, for the EEM loading of every factor, how close it is
+to ONE emission profile times ONE excitation profile (its trilinear share, with the posterior uncertainty) and draws the two profiles: the model does not impose it, it checks it.
 
 **Check before you trust.** Step 8: the chains must converge (R-hat ≤ 1.01, ESS ≥ 400, no divergences); the basis must leave only noise out.  Step 7: the held-out intervals must
 contain about as many measured values as they claim (50 / 80 / 95 %).
@@ -44,5 +51,6 @@ contain about as many measured values as they claim (50 / 80 / 95 %).
 
 The Help tab *Multimodal latent factors* explains every step in detail.
 
-**Versions.** Multimodal latent factors 1.1.0 (1.1.0: a basis from a functional PCA of your samples; more than 150 basis functions on request; log scale, centring and scaling of what the model sees; principal
+**Versions.** Multimodal latent factors 1.2.0 (1.2.0: how every value and covariate is centred and scaled; every category, the reference included, can be chosen and compared;
+a basis from a functional PCA you fitted; tensor-product bases; the trilinear share of every factor's EEM loading. 1.1.0: a basis from a functional PCA of your samples; more than 150 basis functions on request; log scale, centring and scaling of what the model sees; principal
 components of the values; values drawn per standard deviation; any two categories compared and categories as samples; the residual of a prediction); needs FluoViz 1.2.0 or newer (its searchable pickers that stay open while you add values and covariates).

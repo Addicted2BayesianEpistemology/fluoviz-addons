@@ -24,6 +24,13 @@ of its intervals.  Results publish per-sample variables and can be saved as a mo
   0.999 of the prior variance, gaps estimated: FluoViz's `prepare_element`), `fit_fpca` gives the eigenfunctions of the smoothed functions; the basis keeps the fewest that hold
   the share asked (or exactly `n_basis`; at most `k_max`, at most N-1), each times `sqrt(eigenvalue) / scale`.  Data-driven: fewer functions for the same variation, but estimated
   from the training samples (bands slightly optimistic; the paper's truncation theorem does not apply).  The saved model stores the matrix, as for the GP basis.
+* **A fitted functional PCA** (1.2.0, `basis_from: "fitted"`, `input.fpca_result`): the function is the Variable of that analysis (its domain, pre-treatment and absorbance
+  clean-up: the page's settings of steps 2-3 are not used for it), the basis its eigenfunctions (the univariate analysis of the variable when the fit was multivariate), each
+  times `sqrt(eigenvalue)` divided by the scale of the data; the share / number of terms / `k_max` choose how many; no log (refused).  The saved model reads new samples with the
+  analysis' pre-treatment (its `FrozenElement`).
+* **Tensor-product bases** (FluoViz 1.3.0): the Gaussian-process `structure: "tensor"` (products of one-dimensional KL bases on the whole rectangle) is accepted like the others.
+* **Trilinearity, checked not imposed** (`structure.trilinear_loadings`): for every factor's EEM loading, FluoViz's `rank_one` share at up to 200 draws (posterior mean and 90 %
+  interval) and the emission / excitation profiles of the posterior-mean loading (payload `factors[k].modes[...].trilinear`).
 * **Basis size.**  FluoViz's check limits `k_max` / `n_basis` to 400.  Above 150 the request is refused (the field, the mode and the reason in words) unless `input.large_basis`
   is true; the page shows it as a step-3 problem with the switch *Allow more than 150 basis functions* and a warning once it is on.
 * **What the model sees** (per function, `input.<function>`): `log` (`log10(value + c)` after FluoViz's pre-treatment; `c` given, or 1 % of the 99th percentile of the
@@ -36,6 +43,13 @@ of its intervals.  Results publish per-sample variables and can be saved as a mo
   the leading eigenvectors of their pairwise-complete correlation matrix times the square roots of the eigenvalues (the share asked, or `n_basis`).  Covariates: numbers
   standardised (their `log10` when in `log_keys`; zero or below drops the sample); categories as centred indicators of every level but the most frequent (the reference); at most
   12 levels; samples with a missing covariate are left out (noted).
+* **How values and covariates enter** (`input.var_prep`, per key): `centre` mean (default) / median / none and `scaling` sd (default) / mad (1.4826 × the median absolute
+  deviation) / none; a category's indicators centred (`mean`) or 0 / 1 (`none`).  The covariate columns keep the centre and the scale (`mean`, `sd`), so new samples are read the
+  same way.  The model has no intercept of its own (the data are centred on their mean), so a covariate not centred on its mean ties the data mean to the samples at the centre
+  chosen; the algebra stays exact for any design: `Covariates.cov()` is the covariance about the mean design `xbar`, and with the covariates unknown the scores have the prior
+  `N(beta xbar, I + beta Cov(x) beta')` (`predict.score_posterior`, `loo.loglik`; tested against the dense Gaussian density).  "The category alone" puts the other covariates at
+  `xbar`.  A values PCA basis uses the covariance of the values as the model sees them (their correlations by default) and, when a value is not centred on its mean, also
+  holds their mean.
 * `partial` (default true): the samples are the union of those that have any mode; otherwise the intersection.
 
 ## 3. The Stan engine (`core/engine.py`, `engine_job.py`)

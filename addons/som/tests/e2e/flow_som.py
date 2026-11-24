@@ -13,6 +13,7 @@ Run it with the FluoViz environment and FluoViz on ``PYTHONPATH`` (``scripts/env
 from __future__ import annotations
 
 import sys
+import contextlib
 import time
 import traceback
 from pathlib import Path
@@ -80,8 +81,8 @@ def part_page(ch: Chrome) -> None:
     check(ch.count("[data-fpca-what]") == 3, "three cards in step 1")
     check(ch.count("[data-som-other-switch]") == 1, "the switch for other variables")
     shot(ch, "step1")
-    ch.click('[data-fpca-what="both"]')
-    time.sleep(0.4)
+    with contextlib.suppress(Exception):                                         # (the card takes the click once the data of the absorbance are known)
+        ch.wait("(() => { const c = document.querySelector('[data-fpca-what=\"both\"]'); if (c && !c.classList.contains('on')) c.click(); return !!document.querySelector('[data-fpca-weights]'); })()", 30, "the weights")
     check(ch.count("[data-fpca-weights]") == 1, "the weights of two variables are offered")
     ch.click('[data-fpca-what="fluorescence"]')
     for n in (2, 3, 4):
@@ -134,6 +135,7 @@ def part_results(ch: Chrome) -> None:
     time.sleep(1.5)
     shot(ch, "tab_prototypes")
     tab(ch, "7", "Planes", "document.querySelector('[data-som-planes-tab]')")
+    check(ch.pick_var("[data-som-plane-index]", key="trilinear_share") == "trilinear_share", "the Index picker offers the trilinear share of the prototypes")
     check(ch.pick_var("[data-som-plane-index]", key="total_fluorescence") == "total_fluorescence", "the Index picker is searchable and offers the indices of the prototypes")
     ch.click("[data-som-add-plane]")
     ch.wait("document.querySelectorAll('[data-som-planes] .chart-card').length >= 3", 30, "the added plane")

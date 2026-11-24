@@ -9,7 +9,10 @@ sampler estimates every coefficient of every sample and such a model is extremel
 
 Per function also how the data are sent to the model: ``log`` (``log10(value + log_offset)``; the offset is chosen from the data when ``log_offset`` is null), ``centre``
 (``mean`` / ``median`` / ``none``) and ``scaling`` (``global`` / ``pointwise`` / ``pareto`` / ``none``).  ``log_keys`` lists the values and the covariates (numbers) that enter
-as their ``log10``; ``values_basis`` is ``{"kind": "identity" | "pca", "var_fraction", "n_basis"}``."""
+as their ``log10``; ``values_basis`` is ``{"kind": "identity" | "pca", "var_fraction", "n_basis"}``; ``var_prep`` ``{key: {"centre", "scaling"}}`` says how a value or a
+covariate is centred (``mean`` / ``median`` / ``none``; a category: ``mean`` = centred indicators, ``none`` = 0 / 1) and scaled (``sd`` / ``mad`` / ``none``) before the model
+sees it (default: the mean and the SD).  ``basis_from: "fitted"`` takes the eigenfunctions of the functional PCA ``fpca_result`` (a result of the Functional PCA page): the
+function then has that analysis' domain, pre-treatment and (absorbance) clean-up, whatever the request says."""
 from __future__ import annotations
 
 import copy
@@ -18,9 +21,9 @@ from dataclasses import dataclass, field
 from ..core import modes as MD
 from ..core.spec import Config, MblfError
 
-INPUT_KEYS = ("variables", "fluorescence", "absorbance", "values", "covariates", "partial", "large_basis", "log_keys", "values_basis")
+INPUT_KEYS = ("variables", "fluorescence", "absorbance", "values", "covariates", "partial", "large_basis", "log_keys", "values_basis", "var_prep", "fpca_result")
 PREP_KEYS = ("centre", "scaling", "log", "log_offset")
-BASIS_FROM = ("gp", "fpca")
+BASIS_FROM = ("gp", "fpca", "fitted")
 SOFT_MAX = 150
 MODE_WORDS = {"fluorescence": "fluorescence (EEM)", "absorbance": "absorbance"}
 MAX_TITLE = 120
@@ -99,7 +102,23 @@ def check_input(raw) -> dict:
     if vb["n_basis"] is not None:
         if isinstance(vb["n_basis"], bool) or not isinstance(vb["n_basis"], int) or not 1 <= vb["n_basis"] <= max(len(values), 1):
             raise MblfError(f"The number of principal components of the values must be a whole number from 1 to {max(len(values), 1)} (the number of values).")
-    out: dict = {"variables": [], "values": values, "covariates": covariates, "large_basis": large, "log_keys": log_keys, "values_basis": vb}
+    vp = raw.get("var_prep") or {}
+    if not isinstance(vp, dict):
+        raise MblfError("'var_prep' must give, per variable, how it is centred and scaled.")
+    var_prep = {}
+    for k, v in vp.items():
+        if k not in values and k not in covariates:
+            raise MblfError(f"The variable {k} has a centring or scaling but is neither a value to model nor a covariate.")
+        if not isinstance(v, dict) or set(v) - {"centre", "scaling"}:
+            raise MblfError(f"How {k} is centred and scaled must be given as 'centre' and 'scaling'.")
+        c, sc = v.get("centre", "mean"), v.get("scaling", "sd")
+        if c not in MD.VAR_CENTRES:
+            raise MblfError(f"The centring of {k} must be one of {', '.join(MD.VAR_CENTRES)}.")
+        if sc not in MD.VAR_SCALINGS:
+            raise MblfError(f"The scaling of {k} must be one of {', '.join(MD.VAR_SCALINGS)}.")
+        if (c, sc) != ("mean", "sd"):
+            var_prep[k] = {"centre": c, "scaling": sc}
+    out: dict = {"variables": [], "values": values, "covariates": covariates, "large_basis": large, "log_keys": log_keys, "values_basis": vb, "var_prep": var_prep}
     if names:
         body = {"variables": names}
         for n in names:
@@ -135,11 +154,22 @@ def check_input(raw) -> dict:
                                 f"{SOFT_MAX} basis functions' in step 3 if you really want it.")
             bf = (raw.get(n) or {}).get("basis_from", "gp")
             if bf not in BASIS_FROM:
-                raise MblfError(f"Where the basis functions of the {MODE_WORDS[n]} come from must be 'gp' (the Gaussian-process prior) or 'fpca' (a functional PCA of the samples).")
+                raise MblfError(f"Where the basis functions of the {MODE_WORDS[n]} come from must be 'gp' (the Gaussian-process prior), 'fpca' (a functional PCA of the samples) "
+                                "or 'fitted' (a functional PCA already fitted on the Functional PCA page).")
             item["basis"] = b
             item["basis_from"] = bf
             item.update(_prep(n, raw.get(n) or {}))
             out[n] = item
+    fr = raw.get("fpca_result")
+    if fr is not None and (not isinstance(fr, str) or not fr):
+        raise MblfError("'fpca_result' must be the name of a functional PCA result (for example fpca-1).")
+    if any(out.get(n, {}).get("basis_from") == "fitted" for n in out["variables"]):
+        if not fr:
+            raise MblfError("Choose the fitted functional PCA whose eigenfunctions are the basis (step 3).")
+        bad = [n for n in out["variables"] if out[n].get("basis_from") == "fitted" and out[n].get("log")]
+        if bad:
+            raise MblfError(f"The basis of the {MODE_WORDS[bad[0]]} comes from a fitted functional PCA, which did not use a log scale: switch the log off (step 3).")
+    out["fpca_result"] = fr if any(out.get(n, {}).get("basis_from") == "fitted" for n in out["variables"]) else None
     partial = raw.get("partial", True)
     if not isinstance(partial, bool):
         raise MblfError("'partial' must be true or false.")

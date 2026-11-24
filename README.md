@@ -40,6 +40,9 @@ The Install button always reads `https://github.com/<owner>/fluoviz-addons/relea
 
 | add-ons release | for FluoViz | versions |
 |---|---|---|
+| v1.4.0 | 1.3.0 or newer | common 1.0.2, autoencoders 1.2.0, som 1.1.0, mblf 1.2.0 (tensor-product bases and the trilinear share — all need FluoViz 1.3.0's `fluoviz.analysis.fpca.trilinear`; mblf: a basis from a fitted functional PCA, centring and scaling of values and covariates, every category selectable) |
+| v1.4.0 (kept from v1.3.0) | 1.2.x | common 1.0.1, autoencoders 1.1.2, som 1.0.2, mblf 1.1.0 |
+| v1.4.0 (kept from v1.1.0) | 1.1.x | common 1.0.0, autoencoders 1.1.0, som 1.0.0 |
 | v1.3.0 | 1.2.0 or newer | common 1.0.1, autoencoders 1.1.2, som 1.0.2, mblf 1.1.0 (mblf: a basis from a functional PCA, more than 150 basis functions on request, log scale / centring / scaling of what the model sees, principal components of the values, any two categories compared and categories as samples, the residual of a prediction) |
 | v1.3.0 (kept from v1.1.0) | 1.1.x | common 1.0.0, autoencoders 1.1.0, som 1.0.0 |
 | v1.2.0 | 1.2.0 or newer | common 1.0.1, autoencoders 1.1.2, som 1.0.2, mblf 1.0.0 (all need the searchable pickers of FluoViz 1.2.0: `VarSelect` with `items` and `keep-open`) |

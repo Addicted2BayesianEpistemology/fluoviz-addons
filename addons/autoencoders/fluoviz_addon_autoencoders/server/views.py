@@ -258,6 +258,10 @@ def sensitivity_view(r) -> dict:
         share = total / total.sum() if total.sum() > 0 else np.zeros_like(total)
         entry = {"at_mean": browser_block(model, b.name, at), "magnitude": browser_block(model, b.name, mag), "share": share}
         if b.element.kind == "surface":
+            from fluoviz.analysis.fpca.trilinear import rank_one
+            tri = rank_one(b.domain, np.asarray(at, float))
+            entry["trilinear"] = {"share": tri["share"], "em": tri["em"].astype(np.float32), "ex": tri["ex"].astype(np.float32), "em_axis": np.asarray(b.element.axes[0], float),
+                                  "ex_axis": np.asarray(b.element.axes[1], float)}
             for j, nm in enumerate(model.code_names):
                 where = D.where_text(b.domain.embed(mag[j]), b.element.axes[1], b.element.axes[0])
                 if where:

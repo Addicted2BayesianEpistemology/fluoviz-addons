@@ -161,6 +161,11 @@ Numerics (A1): linear AE ≈ PCA; the functional AE on a GP basis ≈ fPCA expla
 
 `scripts/build_addon.py` makes `dist/autoencoders-<version>.zip` (one top-level folder, no `__pycache__`), its sha256 and `dist/index.json` (§ index of `addons.md`); the zip and the index are the assets of a release of the add-ons repository; the FluoViz **Install** button downloads them.  CI of this repository: install FluoViz, install the add-on from the built zip through the framework on Linux, Windows and macOS, run the tests.
 
+## 11b. Tensor bases and the trilinear share (1.2.0, FluoViz 1.3.0)
+
+A Gaussian-process basis with `structure: "tensor"` is not orthonormal on a masked domain: `core/data._functional_block` treats it like the splines (unit scale, roughness
+metric).  `GET /{rid}/sensitivity` gives, for the EEM, `trilinear` `{share, em, ex, em_axis, ex_axis}`: FluoViz's `trilinear.rank_one` of every code's effect at the mean code.
+
 ## 12. Shared code (the `common` add-on)
 
 What this add-on does the same way as the Self-organising map add-on (reading the request's basis / smoothing settings, the project's data as functional variables, finding a result and its model, freezing a result as a saved model, the log-scale limit of the error, the number card / verdict / titled block of the page and the links of the guide) lives once in the library add-on `addons/common` (`fluoviz_addon_common`, `/addon-web/common/web/*.js`).  This add-on names it in `requires_addons` (`{"common": ">=1.0.0,<2"}`): FluoViz installs it together with this one, starts it first and removes it with the last add-on that uses it.  The classes that are written into saved model files (`AEFrame`, `AEFrameBlock`) stay here, because a saved file records where its classes live.  `addons/common/docs/README.md` lists every shared module.

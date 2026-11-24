@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 
 
 def register(api) -> None:

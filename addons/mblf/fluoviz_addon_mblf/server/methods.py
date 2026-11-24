@@ -16,6 +16,9 @@ SCALE_WORDS = {"global": "scaled to unit root mean square", "pointwise": "every 
                "standard deviation (Pareto scaling)", "none": "not scaled"}
 
 
+VSCALE_WORDS = {"sd": "divided by its standard deviation", "mad": "divided by its median absolute deviation", "none": "not scaled"}
+
+
 def _prep_words(m: dict) -> str:
     p = m.get("prep") or {}
     lg = m.get("log")
@@ -33,7 +36,14 @@ def methods_text(r) -> str:
             b = m.get("basis") or {}
             basis = (f"basis = {m['n_basis']} principal component(s) of their correlations, keeping {100 * (m.get('captured') or 0):.1f} % of their variance"
                      if b.get("kind") == "pca" else "identity basis")
-            parts.append(f"the values {', '.join(m.get('labels', []))} (each centred and divided by its standard deviation; {basis})")
+            pv = (m.get("prep") or {}).get("per_value") or []
+            odd = [f"{lab}: {CENTRE_WORDS.get(q['centre'], '')}, {VSCALE_WORDS.get(q['scaling'], '')}" for lab, q in zip(m.get("labels", []), pv) if q != {"centre": "mean", "scaling": "sd"}]
+            parts.append(f"the values {', '.join(m.get('labels', []))} (each centred and divided by its standard deviation{' except ' + '; '.join(odd) if odd else ''}; {basis})")
+        elif (m.get("basis") or {}).get("from") == "fitted":
+            b = m.get("basis", {})
+            parts.append(f"the {m['label']} ({m['n_points']} points; basis = the first {m['n_basis']} eigenfunctions of the functional PCA {b.get('result')} fitted beforehand "
+                         f"(its domain and pre-treatment), holding {100 * (m.get('captured') or 0):.1f} % of the variation of its samples, each scaled by the square root of its "
+                         f"eigenvalue; {_prep_words(m)})")
         elif (m.get("basis") or {}).get("from") == "fpca":
             b = m.get("basis", {})
             parts.append(f"the {m['label']} ({m['n_points']} points; basis = the first {m['n_basis']} eigenfunctions of a functional PCA of the training samples, smoothed by maximum "
@@ -56,6 +66,11 @@ def methods_text(r) -> str:
         logs = [c["label"] for c in cov["columns"] if c.get("log")]
         txt += (f"The means of the factor scores depended linearly on the covariates {', '.join(cov['labels'])} (numbers standardised"
                 + (f", {', '.join(logs)} on the log scale" if logs else "") + "; categories as centred indicators). ")
+        odd = [c for c in cov["columns"] if c.get("centre", "mean") != "mean" or c.get("scaling", "sd") not in ("sd", None) and c["kind"] == "numeric"]
+        if odd:
+            txt += ("Exceptions: " + "; ".join(f"{c['label']} {'centred on the median' if c.get('centre') == 'median' else 'not centred' if c.get('centre') == 'none' else 'centred on the mean'}"
+                                             + ("" if c["kind"] == "level" else f", {'scaled by the median absolute deviation' if c.get('scaling') == 'mad' else 'not scaled' if c.get('scaling') == 'none' else 'scaled by the standard deviation'}")
+                                             for c in odd) + ". ")
     if est == "bayes":
         txt += (f"The posterior was sampled with the No-U-Turn sampler of Stan ({s.get('chains')} chains of {s.get('warmup')} warm-up and {s.get('draws')} kept iterations, target "
                 f"acceptance {s.get('adapt_delta')}); convergence was checked with the rank-normalised split R-hat and the bulk and tail effective sample sizes of rotation-invariant "

@@ -223,7 +223,49 @@ def test_a_category_as_a_sample_pure_and_typical():
     x = cov.pure("meta:site", "b")
     jb = next(j for j, c in enumerate(cov.columns) if c.get("level") == "b")
     jc = next(j for j, c in enumerate(cov.columns) if c.get("level") == "c")
-    assert x[jb] + cov.columns[jb]["mean"] == pytest.approx(1.0) and x[jc] + cov.columns[jc]["mean"] == pytest.approx(0.0) and x[-1] == 0.0
+    assert x[jb] + cov.columns[jb]["mean"] == pytest.approx(1.0) and x[jc] + cov.columns[jc]["mean"] == pytest.approx(0.0) and x[-1] == pytest.approx(0.0, abs=1e-12)
     xt, n = cov.typical("meta:site", "c")
     assert n == 3 and xt[jc] + cov.columns[jc]["mean"] == pytest.approx(1.0) and xt[-1] == pytest.approx(cov.X[[5, 11, 17], -1].mean())
     assert np.allclose(cov.design({"meta:site": ["c"], "meta:t": [6.0]})[0], cov.X[5])
+
+
+def test_uncentred_covariates_unknown_give_the_population_mean(world):
+    """Covariates not centred on their mean: with the covariates unknown, the scores have the prior N(beta xbar, I + beta Cov(x) beta') — the likelihood and the scores agree with
+    the dense Gaussian algebra."""
+    import dataclasses
+    from fluoviz_addon_mblf.core.posterior import Fitted
+    f0 = world
+    cov = dataclasses.replace(f0.cov, X=f0.cov.X + np.linspace(0.5, 1.5, f0.L)[None])
+    f = Fitted(f0.modes, cov, f0.draws, f0.Y, f0.ids)
+    assert np.allclose(cov.cov(), f0.cov.cov()) and np.allclose(cov.xbar(), f0.cov.xbar() + np.linspace(0.5, 1.5, f0.L))
+    idx = np.arange(3)
+    summ = LOO.summaries(f)
+    ll = LOO.loglik(f, summ, [0, 1, 2], idx, None, False)
+    for s in idx:
+        BL, Psi, R, noise, C = T.joint_cov(f, s, False)
+        mu = BL @ (f.draws.beta[s] @ cov.xbar())
+        for n in (0, 9):
+            y, rows = _obs(f, n, [0, 1, 2])
+            assert ll[s, n] == pytest.approx(multivariate_normal(mu[rows], C[np.ix_(rows, rows)]).logpdf(y), rel=1e-8, abs=1e-6)
+    eta, V = P.score_posterior(f, {}, None, np.array([1]), n=1)
+    assert np.allclose(eta[0, 0], f.draws.beta[1] @ cov.xbar())
+
+
+def test_values_and_covariates_centred_and_scaled_as_asked():
+    from fluoviz_addon_mblf.core.modes import covariates_from, values_mode
+    rng = np.random.default_rng(3)
+    x = rng.lognormal(size=40)
+    mode, Z, notes = values_mode({"a": x, "b": 3 * x + rng.normal(size=40)}, {}, list(range(40)), None, None, {"a": {"centre": "median", "scaling": "mad"}, "b": {"centre": "none", "scaling": "none"}})
+    assert mode.mean[0] == pytest.approx(np.median(x)) and mode.scale[0] == pytest.approx(1.4826 * np.median(np.abs(x - np.median(x))))
+    assert mode.mean[1] == 0 and mode.scale[1] == 1 and np.allclose(Z[1], 3 * x + 0 * x + (Z[1] - 3 * x)) and any("not centred" in n for n in notes)
+    site = ["a", "b", "c"] * 10
+    t = np.arange(30.0)
+    cov, keep, notes = covariates_from({"s": site, "t": t}, {}, list(range(30)), None, {"s": {"centre": "none"}, "t": {"centre": "mean", "scaling": "none"}})
+    jt = next(j for j, c in enumerate(cov.columns) if c["key"] == "t")
+    assert np.allclose(cov.X[:, jt], t - t.mean()) and cov.columns[jt]["scaling"] == "none"
+    js = [j for j, c in enumerate(cov.columns) if c["key"] == "s"]
+    assert set(np.unique(cov.X[:, js])) == {0.0, 1.0} and any("Not centred" in n for n in notes)
+    x0 = cov.pure("s", "a")
+    assert np.all(x0[js] == 0) and x0[jt] == pytest.approx(cov.xbar()[jt])
+    with pytest.raises(Exception, match="indicators are either centred"):
+        covariates_from({"s": site}, {}, list(range(30)), None, {"s": {"centre": "median"}})

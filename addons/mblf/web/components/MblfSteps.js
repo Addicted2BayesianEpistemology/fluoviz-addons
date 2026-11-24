@@ -1,7 +1,8 @@
 // Steps 1 to 5 of the Multimodal latent factors page.  Steps 1 to 3 ARE the Functional PCA's step components (same controls, same routes /api/fpca/*), with the words of this page;
 // step 1 adds the values to model, the covariates and the samples that lack a measurement; step 3 offers the Gaussian-process basis only (the prior of the method is built on it).
 // Step 4 holds the model, the sampler and the Stan engine; step 5 says what will be done and fits.
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, watch, ref } from 'vue';
+import { get } from '/static/js/api.js';
 import { Icon } from '/static/js/icons.js';
 import { Seg, Field, NumField, Switch, Callout, Fold } from '/static/js/components/Common.js';
 import { JobBar } from '/static/js/components/JobBar.js';
@@ -13,7 +14,7 @@ import { FpcaExplain } from '/static/js/components/FpcaCommon.js';
 import { VarSelect } from '/static/js/components/VarSelect.js';
 import { loadCatalogue, labelOf, kindOf } from '/static/js/variables.js';
 import { debounce } from '/static/js/util.js';
-import { fp, ctx, mbJobs, requestBody, variablesOf, PRESET_WORDS, MODE_NICE, bigBases, SOFT_MAX, prepDefault, CENTRES, SCALINGS } from './MblfState.js';
+import { fp, ctx, mbJobs, requestBody, variablesOf, PRESET_WORDS, MODE_NICE, bigBases, SOFT_MAX, prepDefault, CENTRES, SCALINGS, VAR_CENTRES, CAT_CENTRES, VAR_SCALINGS, varPrepOf } from './MblfState.js';
 import { loadEngine, prepareEngine, removeEngine, runCheck, runFit, cancelFit, loadDefaults } from './MblfActions.js';
 import { MblfSection, MblfVerdict, MblfStat, pct, nTxt, listWords } from './MblfCommon.js';
 
@@ -28,6 +29,16 @@ export const MblfStepWhat = {
     const remove = (list, key) => { const i = list.indexOf(key); if (i >= 0) list.splice(i, 1); };
     const isLog = (key) => (m.value.log_keys || []).includes(key);
     const toggleLog = (key) => { if (!m.value.log_keys) m.value.log_keys = []; const L = m.value.log_keys, i = L.indexOf(key); if (i >= 0) L.splice(i, 1); else L.push(key); };
+    const rows = computed(() => [...m.value.values.map((k) => ({ key: k, role: 'Value', cat: false })), ...m.value.covariates.map((k) => ({ key: k, role: 'Covariate', cat: kindOf(k) !== 'numeric' }))]);
+    const vp = (k) => varPrepOf(m.value, k);
+    const setVp = (k, what, v) => {
+      if (!m.value.var_prep) m.value.var_prep = {};
+      const cur = { ...vp(k), [what]: v };
+      if (cur.centre === 'mean' && cur.scaling === 'sd') delete m.value.var_prep[k]; else m.value.var_prep[k] = cur;
+    };
+    const notDefault = computed(() => rows.value.filter((r) => { const v = vp(r.key); return v.centre !== 'mean' || (!r.cat && v.scaling !== 'sd'); }));
+    const covOff = computed(() => rows.value.some((r) => r.role === 'Covariate' && vp(r.key).centre !== 'mean'));
+    const valOff = computed(() => rows.value.some((r) => r.role === 'Value' && (vp(r.key).centre === 'none' || vp(r.key).scaling === 'none')));
     const LOG_TIP = 'Model the log10 of this variable: for a quantity that varies by factors (concentrations, total fluorescence) rather than by amounts. A value of zero or below has no log: it counts as not measured (a covariate: the sample is left out).';
     const combo = computed(() => {
       const names = variablesOf(fp.spec).map((n) => MODE_NICE[n].toLowerCase());
@@ -37,7 +48,7 @@ export const MblfStepWhat = {
       return `${listWords(names)} — ${kind}${cov}.`;
     });
     return {
-      m, add, remove, labelOf, kindOf, combo, isLog, toggleLog, LOG_TIP,
+      m, add, remove, labelOf, kindOf, combo, isLog, toggleLog, LOG_TIP, rows, vp, setVp, notDefault, covOff, valOff, VAR_CENTRES, CAT_CENTRES, VAR_SCALINGS,
       DOES: 'You choose what the model describes. Every kind of measurement is a mode: the fluorescence (EEMs), the absorbance spectra, and optionally other numbers you measured (a laboratory value, an index). A few shared factors describe how ALL the modes vary together from sample to sample; each sample also keeps a part of its own. Covariates (metadata) shift the factors from sample to sample: they explain, they are not explained.',
       CHECK: 'That the combination answers your question. One mode alone: the patterns of that measurement. Two or more: what they share, and how well one predicts another (step 7). Covariates: how the patterns depend on site, season, treatment … A value you want to PREDICT (for example the DOC) belongs to the values; a value that EXPLAINS belongs to the covariates.',
       WORDS: { both: 'Fluorescence and absorbance of the same samples: the factors are shared by both, so the model learns how one predicts the other.' },
@@ -57,6 +68,19 @@ export const MblfStepWhat = {
         <MblfSection title="Covariates (optional)" sentence="Metadata that shift the factor scores: numbers (temperature, depth) or categories (site, season, treatment). The model then shows the effect of each one on every wavelength and pixel, with its uncertainty. Samples without a covariate value are left out.">
           <div class="row wrap"><div class="field" style="min-width:260px"><label>Add a covariate</label><VarSelect :model-value="null" :kinds="['numeric', 'category']" :exclude="m.values.concat(m.covariates)" keep-open placeholder="Choose a variable …" small data-mblf-add-covariate @update:modelValue="(k) => add(m.covariates, k)"/></div></div>
           <div class="row wrap" v-if="m.covariates.length"><span class="chip" v-for="k in m.covariates" :key="k" data-mblf-covariate>{{ isLog(k) ? 'log10 ' : '' }}{{ labelOf(k) }}<label v-if="kindOf(k) === 'numeric'" class="mblf-log" :title="LOG_TIP"><input type="checkbox" :checked="isLog(k)" @change="toggleLog(k)" :data-mblf-log="k"/> log</label><span class="x" role="button" tabindex="0" :aria-label="'Remove ' + labelOf(k)" @click="remove(m.covariates, k)" @keydown.enter="remove(m.covariates, k)">×</span></span></div>
+        </MblfSection>
+        <MblfSection v-if="rows.length" title="How they enter the model" sentence="Before the model sees them, the values and the numeric covariates are centred and divided by a scale; the indicators of a category are centred or kept 0 / 1. The defaults (the mean and the standard deviation; centred indicators) suit the default priors and keep the covariates from moving the mean of the data.">
+          <div class="table-wrap"><table class="table mblf-var-table" data-mblf-var-table>
+            <thead><tr><th>Variable</th><th>Role</th><th>Log</th><th>Centred on</th><th>Scaled by</th></tr></thead>
+            <tbody><tr v-for="r in rows" :key="r.key" :data-mblf-var-row="r.key">
+              <td>{{ labelOf(r.key) }}</td><td class="small">{{ r.role }}</td>
+              <td><input v-if="!r.cat" type="checkbox" :checked="isLog(r.key)" @change="toggleLog(r.key)" :title="LOG_TIP" :aria-label="'Log scale of ' + labelOf(r.key)"/><span v-else class="muted">–</span></td>
+              <td><select class="select sm" :value="vp(r.key).centre" @change="setVp(r.key, 'centre', $event.target.value)" :data-mblf-var-centre="r.key"><option v-for="o in (r.cat ? CAT_CENTRES : VAR_CENTRES)" :key="o.value" :value="o.value">{{ o.label }}</option></select></td>
+              <td><select v-if="!r.cat" class="select sm" :value="vp(r.key).scaling" @change="setVp(r.key, 'scaling', $event.target.value)" :data-mblf-var-scaling="r.key"><option v-for="o in VAR_SCALINGS" :key="o.value" :value="o.value">{{ o.label }}</option></select><span v-else class="muted">–</span></td>
+            </tr></tbody></table></div>
+          <p class="fp-note" v-if="notDefault.length">Scaled by the robust MAD, an outlying sample moves the scale less; not scaled, a covariate's effect reads per unit (per 1 °C, per 1 mg/L) instead of per standard deviation, and its coefficient's prior is in those units.</p>
+          <Callout kind="warning" v-if="covOff" data-mblf-cov-centre-warning>A covariate not centred on its mean (or a category with 0 / 1 indicators): the data are centred on the mean of the samples, so the model then ties that mean to the samples at the centre you chose (for a category: to the reference) instead of to the average sample. Use it when that is what the mean of the data should be; otherwise keep the mean.</Callout>
+          <Callout kind="warning" v-if="valOff">A value that is not centred keeps its mean, which the factors and each sample's own part (whose means are zero) then have to carry; a value that is not scaled is in its own units, while the default priors assume values of order one.</Callout>
         </MblfSection>
         <Switch v-model="m.partial" label="Use samples that lack a measurement (they contribute what they have, and the model predicts what they lack)" data-mblf-partial/>
         <Callout kind="info" v-if="!m.partial">Only the samples that have every mode are used. Switch it on to use all of them: a sample without an absorbance spectrum still informs the fluorescence part, and gets a predicted spectrum.</Callout>
@@ -137,13 +161,19 @@ export const MblfValuesBasisCard = {
 
 export const MblfStepRepr = {
   name: 'MblfStepRepr',
-  components: { FpcaStepRepr, Callout, Seg, Switch, MblfPrepCard, MblfValuesBasisCard },
+  components: { FpcaStepRepr, Callout, Seg, Switch, Field, MblfPrepCard, MblfValuesBasisCard },
   setup() {
     const m = computed(() => fp.spec.mblf);
+    const fits = ref(null);
+    const loadFits = async () => { try { fits.value = (await get('/api/results', { kind: 'fpca' }, { quiet: true })).results || []; } catch (e) { fits.value = []; } };
+    onMounted(loadFits);
+    watch(() => m.value.basis_from, (v) => { if (v === 'fitted') loadFits(); });
+    const chosenFit = computed(() => (fits.value || []).find((r) => r.id === m.value.fpca_result) || null);
     const big = computed(() => bigBases(fp.spec));
     const FROM = [{ value: 'gp', label: 'Gaussian-process prior (the method\u2019s own)', title: 'The eigenfunctions of the Gaussian process: smooth building blocks fixed before seeing the data' },
-      { value: 'fpca', label: 'Functional PCA of your samples', title: 'The principal components of your smoothed samples: fewer functions for the same variation, learned from the data' }];
-    return { m, big, FROM, SOFT_MAX,
+      { value: 'fpca', label: 'Functional PCA of your samples', title: 'The principal components of your smoothed samples: fewer functions for the same variation, learned from the data' },
+      { value: 'fitted', label: 'A functional PCA you fitted', title: 'The eigenfunctions of an analysis of the Functional PCA page, with its domain and pre-treatment' }];
+    return { m, big, FROM, SOFT_MAX, fits, chosenFit,
       DOES: 'Writes every EEM and spectrum as a sum of smooth building blocks; the model works on their coefficients. By default the blocks are the eigenfunctions of a Gaussian process on the domain (a Karhunen\u2013Lo\u00e8ve basis), each multiplied by its prior standard deviation, the smoothest first: the share of the prior variance you keep has a meaning, what is left out is the expected relative error of truncating the basis (a theorem of the method). Instead the blocks can be the components of a functional PCA of your samples (smoothed with that Gaussian-process basis): fewer functions describe the same variation, so the model is smaller and faster. What the basis cannot represent goes to the noise.',
       CHECK: 'That the number of functions stays moderate (the sampler explores every coefficient of every sample: tens of functions per mode, not hundreds) and that the length-scales look like the width of the real features. Step 8 checks afterwards that what the basis leaves out looks like noise.' };
   },
@@ -157,6 +187,11 @@ export const MblfStepRepr = {
         <div class="card-body col gap-8">
           <Seg v-model="m.basis_from" :options="FROM" data-mblf-basis-seg/>
           <p class="fp-note" v-if="m.basis_from === 'gp'"><b>The Gaussian-process prior.</b> The building blocks are fixed before the data are seen, as in the method. The settings below choose the process (kernel, length-scales) and how many of its eigenfunctions are kept: the share of its variance, or a number of terms.</p>
+          <template v-else-if="m.basis_from === 'fitted'">
+            <Field label="Fitted functional PCA" help="An analysis of the Functional PCA page of this project. Its eigenfunctions become the building blocks, each times the square root of its variance."><select class="select sm" :value="m.fpca_result || ''" @change="m.fpca_result = $event.target.value || null" data-mblf-fpca-result><option value="">Choose …</option><option v-for="r in (fits || [])" :key="r.id" :value="r.id">{{ r.id }} · {{ r.title }}{{ (r.stale || []).length ? ' (outdated)' : '' }}</option></select></Field>
+            <Callout kind="info" v-if="fits && !fits.length">This project has no functional PCA yet. Fit one on the Functional PCA page (Experimental methods), then choose it here.</Callout>
+            <p class="fp-note" data-mblf-fitted-note><b>A functional PCA you fitted</b>, for the fluorescence and the absorbance alike: the model takes that analysis' <b>domain and pre-treatment</b> (and, for the absorbance, its clean-up), whatever steps 2 and 3 say, and its eigenfunctions (of each variable on its own, when the analysis was multivariate) become the building blocks. Below, the share and the number of terms say how many of its components to keep. Choose its basis there as you like — a tensor product of 1-D bases, for example — and every sample the model reads, now or with a saved model, is treated the same way. Its components were estimated from these samples, so the bands are slightly optimistic.<template v-if="chosenFit"> Chosen: <b>{{ chosenFit.title }}</b>.</template></p>
+          </template>
           <p class="fp-note" v-else><b>A functional PCA of your samples</b>, for the fluorescence and the absorbance alike. Every sample is first smoothed with the Gaussian-process basis below (by maximum likelihood, like the Functional PCA page), then the principal components of the smoothed samples become the building blocks. Below, the share and the number of terms now mean the share of the variation of your samples the components keep, and how many components (at most one fewer than the samples). Fewer functions, so a faster model; but the basis is learned from the same samples the model is fitted to (its bands are slightly optimistic), and a new sample with a shape none of them had is represented only as far as these components allow.</p>
           <Callout kind="info" data-mblf-basis-note>No smoothing is chosen here: the model itself separates the shared variation, each sample's own part and the measurement noise.</Callout>
           <Switch v-model="m.large_basis" label="Allow more than 150 basis functions" data-mblf-large-basis/>

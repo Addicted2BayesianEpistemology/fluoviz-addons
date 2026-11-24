@@ -41,6 +41,11 @@ API: `/api/addon/som/` — see `docs/api.md`.  Page: nine steps (`docs/ui.md`). 
 
 ## 10–11. (Layout, distribution) as in the brief, sections 13–14.
 
+## 11b. Tensor bases and the trilinear share (1.1.0, FluoViz 1.3.0)
+
+A Gaussian-process basis with `structure: "tensor"` (products of one-dimensional KL bases) is not orthonormal on a masked domain: its coordinates are used like those of the
+splines (no prior scale).  The index catalogue starts with `trilinear_share` (`planes.TRILINEAR`): FluoViz's `trilinear.rank_one` share of every prototype's EEM.
+
 ## 12. Shared with the autoencoders add-on (the `common` add-on)
 The map was modelled on the autoencoders add-on, and what the two do the same way lives once, in the add-on `common` (`addons/common`, a library add-on that FluoViz installs with either of them; this add-on names it in `requires_addons`):
 

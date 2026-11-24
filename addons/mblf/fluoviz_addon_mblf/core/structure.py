@@ -70,6 +70,29 @@ def factor_summaries(f: Fitted, idx: np.ndarray, level: float = 0.95) -> list[di
     return out
 
 
+def trilinear_loadings(f: Fitted, idx: np.ndarray, max_draws: int = 200) -> dict:
+    """How far the EEM loading of every factor is from ONE emission profile times ONE excitation profile (the trilinear structure of PARAFAC), checked, not imposed: for every
+    surface mode and factor, the posterior (at most ``max_draws`` draws) of the trilinear share of FluoViz's ``rank_one`` (the best product on the pixels that exist), and
+    the two profiles of the posterior-mean loading.  ``{mode name: [{factor, mean, lower, upper (90 %), share_of_mean, em, ex}]}``."""
+    from fluoviz.analysis.fpca.trilinear import rank_one
+    from fluoviz.analysis.frozen.kinds.fpca import ElementRuntime
+    idx = np.asarray(idx, int)
+    sub = idx[np.unique(np.linspace(0, idx.size - 1, min(idx.size, max_draws)).astype(int))]
+    out = {}
+    for d, m in enumerate(f.modes):
+        if m.kind != "surface" or m.element is None:
+            continue
+        dom = ElementRuntime(m.element).dom
+        F = f.loading_functions(d, True, True, sub)                               # (S, K, M)
+        S_, K, M = F.shape
+        sh = rank_one(dom, F.reshape(-1, M))["share"].reshape(S_, K)
+        mean = rank_one(dom, F.mean(axis=0))
+        out[m.name] = [{"factor": k + 1, **interval(sh[:, k][np.isfinite(sh[:, k])] if np.isfinite(sh[:, k]).any() else np.array([np.nan])),
+                        "share_of_mean": float(mean["share"][k]), "em": mean["em"][k], "ex": mean["ex"][k],
+                        "em_axis": np.asarray(dom.axes[0], float), "ex_axis": np.asarray(dom.axes[1], float)} for k in range(K)]
+    return out
+
+
 # ----------------------------------------------------------------------------- how the variation splits, point by point
 def variance_parts(f: Fitted, d: int, idx: np.ndarray) -> dict:
     """At every point of mode ``d`` (data units squared, posterior mean and 90 % interval of the shares): ``factors`` (the variation the factors carry, covariates included),

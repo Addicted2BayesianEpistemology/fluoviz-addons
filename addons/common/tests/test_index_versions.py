@@ -58,7 +58,7 @@ def test_the_new_list_keeps_the_old_versions_with_their_zips(release):
 
 
 @pytest.mark.parametrize("fluoviz, want", [("1.1.0", {"autoencoders": "1.1.0", "common": "1.0.0", "som": "1.0.0"}),
-                                          ("1.2.0", {"autoencoders": "1.1.2", "common": "1.0.1", "som": "1.0.2", "mblf": "1.0.0"})])
+                                          ("1.2.0", {"autoencoders": "1.1.2", "common": "1.0.1", "som": "1.0.2", "mblf": "1.1.0"})])
 def test_each_fluoviz_is_offered_the_newest_version_it_can_run(release, fluoviz, want):
     idx = parse_index(json.loads((release / "index.json").read_text(encoding="utf-8")), None)
     offered = {e.id: e for e in idx.latest(fluoviz)}

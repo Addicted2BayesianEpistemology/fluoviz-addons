@@ -109,6 +109,6 @@ def small_project_data(n: int = 30, seed: int = 0, noise: float = 0.01):
     doc = conc @ np.array([1.0, 0.6, 0.3]) + 0.1 * rng.standard_normal(n)
     ids = [f"S{i:02d}" for i in range(n)]
     import pandas as pd
-    meta = pd.DataFrame({"site": site, "doc": doc, "temp": np.linspace(5, 20, n)}, index=ids)
+    meta = pd.DataFrame({"site": site, "doc": doc, "temp": np.linspace(5, 20, n), "season": np.array(["spring", "summer", "autumn"])[np.arange(n) % 3]}, index=ids)
     meta.loc[ids[::5], "doc"] = np.nan                                   # the laboratory value was not measured for every sample
     return X, A, ids, meta

@@ -11,6 +11,18 @@ REFERENCES = [
 ]
 
 
+CENTRE_WORDS = {"mean": "centred on the mean of the training samples", "median": "centred on the median of the training samples", "none": "not centred"}
+SCALE_WORDS = {"global": "scaled to unit root mean square", "pointwise": "every point divided by its standard deviation", "pareto": "every point divided by the square root of its "
+               "standard deviation (Pareto scaling)", "none": "not scaled"}
+
+
+def _prep_words(m: dict) -> str:
+    p = m.get("prep") or {}
+    lg = m.get("log")
+    words = f"{CENTRE_WORDS.get(p.get('centre', 'mean'))} and {SCALE_WORDS.get(p.get('scaling', 'global'))}"
+    return (f"modelled as log10(value + {lg['offset']:.3g}), " if lg else "") + words
+
+
 def methods_text(r) -> str:
     pl = r.payload or {}
     pr = r.params or {}
@@ -18,12 +30,20 @@ def methods_text(r) -> str:
     parts = []
     for m in modes:
         if m["kind"] == "vector":
-            parts.append(f"the values {', '.join(m.get('labels', []))} (each centred and divided by its standard deviation; identity basis)")
+            b = m.get("basis") or {}
+            basis = (f"basis = {m['n_basis']} principal component(s) of their correlations, keeping {100 * (m.get('captured') or 0):.1f} % of their variance"
+                     if b.get("kind") == "pca" else "identity basis")
+            parts.append(f"the values {', '.join(m.get('labels', []))} (each centred and divided by its standard deviation; {basis})")
+        elif (m.get("basis") or {}).get("from") == "fpca":
+            b = m.get("basis", {})
+            parts.append(f"the {m['label']} ({m['n_points']} points; basis = the first {m['n_basis']} eigenfunctions of a functional PCA of the training samples, smoothed by maximum "
+                         f"likelihood with a {b.get('kernel', 'Matérn 5/2')} Gaussian-process basis, holding {100 * (m.get('captured') or 0):.1f} % of their smoothed variation, each "
+                         f"scaled by the square root of its eigenvalue; {_prep_words(m)})")
         else:
             b = m.get("basis", {})
             parts.append(f"the {m['label']} ({m['n_points']} points; Karhunen-Loeve basis of a {b.get('kernel', 'Matérn 5/2')} Gaussian process with length-scales "
                          f"{', '.join(f'{x:.3g}' for x in b.get('lengths', []))} nm ({b.get('lengths_source', 'given')}), {m['n_basis']} functions keeping "
-                         f"{100 * (m.get('captured') or 0):.1f} % of the prior variance; centred on the mean of the training samples and scaled to unit root mean square)")
+                         f"{100 * (m.get('captured') or 0):.1f} % of the prior variance; {_prep_words(m)})")
     cov = (pl.get("data") or {}).get("covariates")
     model = pr.get("model", {})
     s = pr.get("sampler", {})
@@ -33,7 +53,9 @@ def methods_text(r) -> str:
     txt += (f"Up to {pl.get('K')} shared factors were allowed; the multiplicative gamma process prior shrinks the factors the data do not need. "
             f"Samples that lack part of a mode, or a whole mode, contributed what they had (the likelihood was evaluated exactly from the observed points). ")
     if cov:
-        txt += f"The means of the factor scores depended linearly on the covariates {', '.join(cov['labels'])} (numbers standardised; categories as centred indicators). "
+        logs = [c["label"] for c in cov["columns"] if c.get("log")]
+        txt += (f"The means of the factor scores depended linearly on the covariates {', '.join(cov['labels'])} (numbers standardised"
+                + (f", {', '.join(logs)} on the log scale" if logs else "") + "; categories as centred indicators). ")
     if est == "bayes":
         txt += (f"The posterior was sampled with the No-U-Turn sampler of Stan ({s.get('chains')} chains of {s.get('warmup')} warm-up and {s.get('draws')} kept iterations, target "
                 f"acceptance {s.get('adapt_delta')}); convergence was checked with the rank-normalised split R-hat and the bulk and tail effective sample sizes of rotation-invariant "

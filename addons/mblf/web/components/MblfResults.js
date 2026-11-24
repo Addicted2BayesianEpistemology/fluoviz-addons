@@ -10,8 +10,8 @@ import { FpcaFrame } from '/static/js/components/FpcaStepper.js';
 import { FpcaExplain } from '/static/js/components/FpcaCommon.js';
 import { tokens, themeState, withAlpha } from '/static/js/theme.js';
 import { fp, ctx, mbJobs, MODE_NICE } from './MblfState.js';
-import { predictable, correlation } from './MblfActions.js';
-import { MblfStat, MblfVerdict, MblfSection, MblfModeView, MblfInterval, nd, row, img, arr, modeOf, modeLabel, sourceWords, pct, nTxt, num, ivlPct } from './MblfCommon.js';
+import { predictable, correlation, contrast, category } from './MblfActions.js';
+import { MblfStat, MblfVerdict, MblfSection, MblfModeView, MblfInterval, MblfBudget, nd, row, img, arr, modeOf, modeLabel, sourceWords, pct, nTxt, num, ivlPct } from './MblfCommon.js';
 
 export const STALE_WORDS = { raw: 'the raw data', corrections: 'the corrections', masks: 'the scatter removal or excised regions', window: 'the focus window', samples: 'the sample selection', meta: 'the metadata' };
 
@@ -222,20 +222,26 @@ const MblfVariance = {
 // ---------------------------------------------------------------- covariates
 const MblfCovariates = {
   name: 'MblfCovariates',
-  components: { Seg, Switch, MblfModeView, MblfInterval, Callout },
+  components: { Seg, Switch, Field, MblfModeView, MblfInterval, Callout },
   setup() {
     const p = computed(() => fp.mb.res.p);
     const C = computed(() => p.value.covariates);
-    const which = computed({ get: () => Math.min(fp.mb.view.cov || 0, (C.value ? C.value.effects.length : 1) - 1), set: (v) => { fp.mb.view.cov = v; } });
+    const which = computed({ get: () => Math.min(fp.mb.view.cov || 0, (C.value ? C.value.effects.length : 1) - 1), set: (v) => { fp.mb.view.cov = v; fp.mb.view.covVs = null; } });
     const options = computed(() => (C.value ? C.value.effects.map((e, i) => ({ value: i, label: e.column.label })) : []));
     const eff = computed(() => (C.value ? C.value.effects[which.value] : null));
+    const col = computed(() => (eff.value ? eff.value.column : null));
+    const others = computed(() => (col.value && col.value.kind === 'level' ? col.value.known.filter((l) => l !== col.value.level) : []));
+    const vs = computed({ get: () => (col.value && others.value.includes(fp.mb.view.covVs) ? fp.mb.view.covVs : (col.value ? col.value.reference : null)), set: (v) => { fp.mb.view.covVs = v; } });
+    const cmp = computed(() => (col.value && col.value.kind === 'level' && vs.value !== col.value.reference ? contrast(col.value.key, col.value.level, vs.value) : null));
+    const shown = computed(() => (cmp.value ? (cmp.value.data ? cmp.value.data.modes : null) : eff.value ? eff.value.modes : null));
+    const name = computed(() => (col.value ? col.value.label.split(' = ')[0] : ''));
     const words = computed(() => {
-      const c = eff.value && eff.value.column;
+      const c = col.value;
       if (!c) return '';
       return c.kind === 'numeric' ? `The change of every mode when ${c.label} is one standard deviation (${c.sd.toPrecision(3)}) higher, everything else equal.`
-        : `The difference of every mode between ${c.label.split(' = ')[0]} = ${c.level} and the reference ${c.reference}, everything else equal.`;
+        : `The difference of every mode between ${name.value} = ${c.level} and ${name.value} = ${vs.value}${vs.value === c.reference ? ' (the reference)' : ''}, everything else equal.`;
     });
-    return { p, C, which, options, eff, words, modeOf: (n) => modeOf(fp.mb.res, n), modeLabel };
+    return { p, C, which, options, eff, col, others, vs, cmp, shown, words, modeOf: (n) => modeOf(fp.mb.res, n), modeLabel };
   },
   template: `
   <div class="col gap-12" data-mblf-covariates>
@@ -245,8 +251,68 @@ const MblfCovariates = {
       <table class="table"><thead><tr><th>Mode</th><th>Share of the variation the covariates explain (90 % interval)</th></tr></thead>
         <tbody><tr v-for="s in C.shares" :key="s.mode"><td>{{ modeLabel(modeOf(s.mode)) }}</td><td><MblfInterval :value="s"/></td></tr></tbody></table>
       <div class="row wrap"><Seg v-model="which" :options="options" small data-mblf-cov/></div>
-      <p class="small">{{ words }}</p>
-      <div class="mblf-grid"><MblfModeView v-for="m in eff.modes" :key="m.mode" :mode="modeOf(m.mode)" :summary="m" :title="modeLabel(modeOf(m.mode))" signed :units="modeOf(m.mode).units" :export-name="'effect-' + m.mode"/></div>
+      <div class="row wrap" v-if="col && col.kind === 'level'"><Field label="Compared with" help="Any other category of the same covariate: the difference between the two, with its uncertainty. The reference is just the most frequent category."><select class="select sm" :value="vs" @change="vs = $event.target.value" data-mblf-cov-vs><option v-for="l in others" :key="l" :value="l">{{ l }}{{ l === col.reference ? ' (reference)' : '' }}</option></select></Field></div>
+      <p class="small" data-mblf-cov-words>{{ words }}</p>
+      <p class="muted small" v-if="cmp && cmp.busy">Comparing the two categories …</p>
+      <Callout kind="critical" v-if="cmp && cmp.error">{{ cmp.error }}</Callout>
+      <div class="mblf-grid" v-if="shown"><MblfModeView v-for="m in shown" :key="m.mode" :mode="modeOf(m.mode)" :summary="m" :title="modeLabel(modeOf(m.mode))" signed :units="modeOf(m.mode).units" :export-name="'effect-' + m.mode"/></div>
+    </template>
+  </div>`,
+};
+
+// ---------------------------------------------------------------- categories as samples
+export const HOWS = [{ value: 'pure', label: 'The category alone', title: 'This category (its indicator 1, the other categories 0), every other covariate at the average of all the training samples: the pattern of the category itself' },
+  { value: 'typical', label: 'Its typical member', title: 'The average covariates of the training samples of this category (the other covariates at THEIR average within it): what a typical sample of the category looks like' }];
+const MblfCategories = {
+  name: 'MblfCategories',
+  components: { Seg, Switch, Field, MblfModeView, MblfBudget, MblfVerdict, Callout },
+  setup() {
+    const p = computed(() => fp.mb.res.p);
+    const V = computed(() => fp.mb.view);
+    const keys = computed(() => {
+      const C = p.value.covariates, out = [];
+      if (!C) return out;
+      for (const c of C.columns) if (c.kind === 'level' && !out.some((o) => o.key === c.key)) out.push({ key: c.key, label: c.label.split(' = ')[0], levels: c.known, reference: c.reference });
+      return out;
+    });
+    const cur = computed(() => keys.value.find((k) => k.key === V.value.catKey) || keys.value[0] || null);
+    const level = computed(() => (cur.value && cur.value.levels.includes(V.value.catLevel) ? V.value.catLevel : cur.value ? cur.value.levels[0] : null));
+    const targets = computed(() => p.value.modes.map((m) => ({ value: m.name, label: MODE_NICE[m.name] || m.name })));
+    const target = computed(() => V.value.catTarget || (p.value.modes.find((m) => m.kind === 'surface') || p.value.modes[0]).name);
+    const mode = computed(() => modeOf(fp.mb.res, target.value));
+    const ans = computed(() => (cur.value ? category({ key: cur.value.key, level: level.value, how: V.value.catHow, target: target.value, noisy: V.value.catNoisy }) : null));
+    const R = computed(() => (ans.value && ans.value.data) || null);
+    const levelOptions = computed(() => (cur.value ? cur.value.levels.map((l) => ({ value: l, label: l + (l === cur.value.reference ? ' (reference)' : '') })) : []));
+    const design = computed(() => (R.value ? R.value.design.filter((d) => !(d.kind === 'level' && d.label.startsWith(cur.value.label + ' = '))) : []));
+    const fmtDesign = (d) => (d.kind === 'numeric' ? `${d.label} = ${num(d.value, 3)}` : `${d.label}: ${pct(d.value, 0)}`);
+    return { p, V, keys, cur, level, levelOptions, targets, target, mode, ans, R, design, fmtDesign, HOWS, modeLabel, MODE_NICE };
+  },
+  template: `
+  <div class="col gap-12" data-mblf-categories>
+    <Callout kind="info" v-if="!keys.length">This model has no covariate with categories. Add one (a site, a season, a treatment) in step 1 to see what each category looks like.</Callout>
+    <template v-else>
+      <p class="fp-note">Every category of a covariate as a sample of its own. <b>The category alone</b>: its indicator is 1, the other categories 0, and every other covariate is at the average of all the training samples — the pattern of the category itself, like an eigenface. <b>Its typical member</b>: the covariates take their average over the training samples of that category, so the other covariates come along as they really are in it. For each, the expected function (only the uncertainty about the population) and what a new member would look like (it also varies in its factors and its own part).</p>
+      <div class="mblf-pred-controls">
+        <Field label="Covariate" v-if="keys.length > 1"><select class="select sm" :value="cur.key" @change="V.catKey = $event.target.value; V.catLevel = null" data-mblf-cat-key><option v-for="k in keys" :key="k.key" :value="k.key">{{ k.label }}</option></select></Field>
+        <Field label="Category"><Seg :model-value="level" :options="levelOptions" small @update:modelValue="(v) => { V.catLevel = v; }" data-mblf-cat-level/></Field>
+        <Field label="As"><Seg v-model="V.catHow" :options="HOWS" small data-mblf-cat-how/></Field>
+        <Field label="Show"><Seg :model-value="target" :options="targets" small @update:modelValue="(v) => { V.catTarget = v; }" data-mblf-cat-target/></Field>
+        <Switch v-model="V.catNoisy" label="A new measurement (include the noise of the instrument)" data-mblf-cat-noisy/>
+      </div>
+      <p class="muted small" v-if="ans && ans.busy">Computing the category …</p>
+      <Callout kind="critical" v-if="ans && ans.error">{{ ans.error }}</Callout>
+      <template v-if="R">
+        <MblfVerdict level="info" data-mblf-cat-text>{{ R.text }}<span v-if="R.how === 'pure'"> {{ R.n }} training sample(s) have {{ cur.label }} = {{ level }}.</span></MblfVerdict>
+        <div class="mblf-design small" v-if="design.length" data-mblf-cat-design><span class="muted">The other covariates:</span><span class="chip" v-for="d in design" :key="d.label">{{ fmtDesign(d) }}</span></div>
+        <div class="mblf-grid">
+          <MblfModeView :mode="mode" :summary="R.expected" :title="'Expected ' + mode.label + ' of ' + cur.label + ' = ' + level" quantity="absolute" :units="mode.units" :stats="['mean', 'lower', 'upper', 'width']" :export-name="'category-' + level + '-' + mode.name"
+                        help="The posterior of the mean function of the category: its bands carry only the uncertainty about the population (more training samples of the category narrow them)."/>
+          <MblfModeView :mode="mode" :summary="R.shift" :title="'Difference from the average sample'" signed :units="mode.units" :export-name="'category-shift-' + level + '-' + mode.name"
+                        help="The expected function minus the mean of all the training samples: where the category is credibly above or below the average."/>
+        </div>
+        <MblfModeView :mode="mode" :summary="R.member" :title="(R.noisy ? 'A new measurement of a member of ' : 'A new member of ') + cur.label + ' = ' + level + (mode.kind === 'curve' ? ' (fan: 50, 80, 95 %; dashed: the whole curve)' : '')" quantity="absolute" :units="mode.units" :stats="['mean', 'lower', 'upper', 'width']" :export-name="'category-member-' + level + '-' + mode.name"/>
+        <MblfBudget :mode="mode" :budget="R.budget" :total="R.budget_total" :noisy="R.noisy"/>
+      </template>
     </template>
   </div>`,
 };
@@ -301,12 +367,14 @@ const MblfSamples = {
 
 export const MblfResults = {
   name: 'MblfResults',
-  components: { Icon, Tabs, FpcaFrame, FpcaExplain, MblfGate, MblfStaleNote, MblfOverview, MblfFactors, MblfTells, MblfVariance, MblfCovariates, MblfSamples },
+  components: { Icon, Tabs, FpcaFrame, FpcaExplain, MblfGate, MblfStaleNote, MblfOverview, MblfFactors, MblfTells, MblfVariance, MblfCovariates, MblfCategories, MblfSamples },
   setup() {
     const A = computed(() => fp.mb);
     const ready = computed(() => !!(A.value.res && A.value.resRid));
     const tabs = computed(() => [{ id: 'overview', label: 'Overview' }, { id: 'factors', label: 'Factors' }, { id: 'tells', label: 'What tells what' }, { id: 'variance', label: 'How the variation splits' },
-      { id: 'covariates', label: 'Covariates', dot: !!(A.value.res && A.value.res.p.covariates) }, { id: 'samples', label: 'Samples' }]);
+      { id: 'covariates', label: 'Covariates', dot: !!(A.value.res && A.value.res.p.covariates) },
+      ...(A.value.res && A.value.res.p.covariates && A.value.res.p.covariates.columns.some((c) => c.kind === 'level') ? [{ id: 'categories', label: 'Categories' }] : []),
+      { id: 'samples', label: 'Samples' }]);
     return { A, ready, tabs,
       DOES: 'Shows what the model learned about the population, every number with its posterior uncertainty: whether the sampler converged and how many factors the data use; the factors (one loading function per mode) with credible bands; how much of each mode the others can predict; how the variation of every wavelength or pixel splits; the effects of the covariates; the scores of the samples.',
       CHECK: 'Read the convergence first (Overview): if it is not fine, the rest is not yet trustworthy. Then whether the factors are credibly different from zero where you read them (the bands, or P(value > 0) on an EEM), and whether "What tells what" supports the use you have in mind; step 7 then checks the predictions on held-out samples.' };
@@ -323,6 +391,7 @@ export const MblfResults = {
       <MblfTells v-else-if="A.tab6 === 'tells'"/>
       <MblfVariance v-else-if="A.tab6 === 'variance'"/>
       <MblfCovariates v-else-if="A.tab6 === 'covariates'"/>
+      <MblfCategories v-else-if="A.tab6 === 'categories'"/>
       <MblfSamples v-else-if="A.tab6 === 'samples'"/>
     </template>
   </FpcaFrame>`,

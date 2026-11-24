@@ -1,14 +1,28 @@
 """The request of a fit, checked in plain English: the model and sampler settings are ``core.spec.Config``; the data settings (``input``) are the Functional PCA request for the
 fluorescence and the absorbance (checked by the function the Functional PCA page uses, ``routers/fpca.check_spec``; the basis must be the Gaussian-process basis), plus the
-``values`` to model, the ``covariates`` and whether samples that lack a mode are used (``partial``).  Nothing is computed here."""
+``values`` to model, the ``covariates`` and whether samples that lack a mode are used (``partial``).  Nothing is computed here.
+
+Per function, ``basis_from`` says where its basis functions come from: ``gp`` (default: the Karhunen-Loeve eigenfunctions of the Gaussian-process prior, the paper's
+construction) or ``fpca`` (the eigenfunctions of a functional PCA of the training samples, smoothed with that Gaussian-process basis).  The size of a basis ("Maximum number of
+terms", "Number of terms" of step 3) is limited to 400 by FluoViz's own check; above ``SOFT_MAX`` (150) the request is refused unless ``large_basis`` is true, because the
+sampler estimates every coefficient of every sample and such a model is extremely slow, usually without describing the data better.
+
+Per function also how the data are sent to the model: ``log`` (``log10(value + log_offset)``; the offset is chosen from the data when ``log_offset`` is null), ``centre``
+(``mean`` / ``median`` / ``none``) and ``scaling`` (``global`` / ``pointwise`` / ``pareto`` / ``none``).  ``log_keys`` lists the values and the covariates (numbers) that enter
+as their ``log10``; ``values_basis`` is ``{"kind": "identity" | "pca", "var_fraction", "n_basis"}``."""
 from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
 
+from ..core import modes as MD
 from ..core.spec import Config, MblfError
 
-INPUT_KEYS = ("variables", "fluorescence", "absorbance", "values", "covariates", "partial")
+INPUT_KEYS = ("variables", "fluorescence", "absorbance", "values", "covariates", "partial", "large_basis", "log_keys", "values_basis")
+PREP_KEYS = ("centre", "scaling", "log", "log_offset")
+BASIS_FROM = ("gp", "fpca")
+SOFT_MAX = 150
+MODE_WORDS = {"fluorescence": "fluorescence (EEM)", "absorbance": "absorbance"}
 MAX_TITLE = 120
 MAX_KEYS = 20
 
@@ -69,11 +83,30 @@ def check_input(raw) -> dict:
         raise MblfError(f"The variable {sorted(both)[0]} is both a value to model and a covariate: a variable is either explained by the factors or explains them, not both.")
     if not names and not values:
         raise MblfError("Choose what to model: the fluorescence, the absorbance, other values, or several of them.")
-    out: dict = {"variables": [], "values": values, "covariates": covariates}
+    large = raw.get("large_basis", False)
+    if not isinstance(large, bool):
+        raise MblfError("'large_basis' must be true or false.")
+    log_keys = _keys(raw.get("log_keys"), "variables on the log scale")
+    stray = [k for k in log_keys if k not in values and k not in covariates]
+    if stray:
+        raise MblfError(f"The variable {stray[0]} is on the log scale but is neither a value to model nor a covariate.")
+    vb = raw.get("values_basis") or {"kind": "identity"}
+    if not isinstance(vb, dict) or vb.get("kind", "identity") not in MD.VALUES_BASES:
+        raise MblfError("The basis of the values must be 'identity' (one per value) or 'pca' (principal components).")
+    vb = {"kind": vb.get("kind", "identity"), "var_fraction": float(vb.get("var_fraction", 0.95)), "n_basis": vb.get("n_basis")}
+    if not 0.5 <= vb["var_fraction"] <= 0.9999:
+        raise MblfError("The share of the variance of the values the principal components keep must be between 50 % and 99.99 %.")
+    if vb["n_basis"] is not None:
+        if isinstance(vb["n_basis"], bool) or not isinstance(vb["n_basis"], int) or not 1 <= vb["n_basis"] <= max(len(values), 1):
+            raise MblfError(f"The number of principal components of the values must be a whole number from 1 to {max(len(values), 1)} (the number of values).")
+    out: dict = {"variables": [], "values": values, "covariates": covariates, "large_basis": large, "log_keys": log_keys, "values_basis": vb}
     if names:
         body = {"variables": names}
         for n in names:
             sub = dict(raw.get(n) or {})
+            sub.pop("basis_from", None)
+            for k in PREP_KEYS:
+                sub.pop(k, None)
             b = dict(sub.get("basis") or {"kind": "gp"})
             if b.get("kind", "gp") != "gp":
                 raise MblfError(f"The multimodal latent factor model needs the Gaussian-process basis for the {n} (the prior of the paper is built on it).")
@@ -91,17 +124,43 @@ def check_input(raw) -> dict:
             given = dict((raw.get(n) or {}).get("basis") or {})
             b["var_fraction"] = float(given.get("var_fraction", 0.99))
             if not 0.5 <= b["var_fraction"] <= 0.9999:
-                raise MblfError("The share of the prior variance the basis keeps must be between 50 % and 99.99 %.")
-            b["k_max"] = int(given.get("k_max", 40 if n == "fluorescence" else 25))
-            if not 3 <= b["k_max"] <= 150:
-                raise MblfError("The largest number of basis functions must be between 3 and 150.")
+                raise MblfError("The share of the variance the basis keeps (step 3) must be between 50 % and 99.99 %.")
+            if "k_max" not in given:
+                b["k_max"] = 40 if n == "fluorescence" else 25                       # (the add-on's defaults; FluoViz's own are larger)
+            big = [(what, int(val)) for what, val in (("maximum number of terms", b.get("k_max")), ("number of terms", b.get("n_basis"))) if val and int(val) > SOFT_MAX]
+            if big and not large:
+                what, val = big[0]
+                raise MblfError(f"The {what} of the {MODE_WORDS[n]} basis (step 3 · Basis) is {val}. Above {SOFT_MAX} the sampler has to estimate every coefficient of every "
+                                "sample, so the model becomes extremely slow, and it rarely describes the data better. Lower it, or switch on 'Allow more than "
+                                f"{SOFT_MAX} basis functions' in step 3 if you really want it.")
+            bf = (raw.get(n) or {}).get("basis_from", "gp")
+            if bf not in BASIS_FROM:
+                raise MblfError(f"Where the basis functions of the {MODE_WORDS[n]} come from must be 'gp' (the Gaussian-process prior) or 'fpca' (a functional PCA of the samples).")
             item["basis"] = b
+            item["basis_from"] = bf
+            item.update(_prep(n, raw.get(n) or {}))
             out[n] = item
     partial = raw.get("partial", True)
     if not isinstance(partial, bool):
         raise MblfError("'partial' must be true or false.")
     out["partial"] = partial
     return out
+
+
+def _prep(n: str, raw: dict) -> dict:
+    """How a function is sent to the model (see the module text), checked."""
+    centre, scaling, log, off = raw.get("centre", "mean"), raw.get("scaling", "global"), raw.get("log", False), raw.get("log_offset")
+    if centre not in MD.CENTRES:
+        raise MblfError(f"The centring of the {MODE_WORDS[n]} must be one of {', '.join(MD.CENTRES)}.")
+    if scaling not in MD.SCALINGS:
+        raise MblfError(f"The scaling of the {MODE_WORDS[n]} must be one of {', '.join(MD.SCALINGS)}.")
+    if not isinstance(log, bool):
+        raise MblfError(f"The log scale of the {MODE_WORDS[n]} must be true or false.")
+    if off is not None:
+        if isinstance(off, bool) or not isinstance(off, (int, float)) or not off >= 0 or off != off:
+            raise MblfError(f"The offset of the log of the {MODE_WORDS[n]} must be a number of zero or more (or empty: chosen from the data).")
+        off = float(off)
+    return {"centre": centre, "scaling": scaling, "log": log, "log_offset": off if log else None}
 
 
 def parse_request(body) -> Request:

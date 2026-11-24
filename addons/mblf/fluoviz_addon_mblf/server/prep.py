@@ -80,7 +80,7 @@ def build(p, req: Request, progress=None) -> MD.Prepared:
     cov = None
     if inp["covariates"]:
         cvals = values_for(p, inp["covariates"], ids)
-        cov, ok, cnotes = MD.covariates_from(cvals, labels_of(p, inp["covariates"]), ids)
+        cov, ok, cnotes = MD.covariates_from(cvals, labels_of(p, inp["covariates"]), ids, inp.get("log_keys"))
         notes += cnotes
         dropped += [(s, "a covariate is missing") for s, k in zip(ids, ok) if not k]
         ids = [s for s, k in zip(ids, ok) if k]
@@ -91,7 +91,8 @@ def build(p, req: Request, progress=None) -> MD.Prepared:
     for j, v in enumerate(variables):
         sub = progress.sub(j / nf, (j + 1) / nf)
         sub(0.0, f"Basis for the {v.name}")
-        m, y, mn = MD.functional_mode(v, ids, inp[v.name]["basis"], sub, C.ife_of(p, {"variables": inp["variables"], **{n: inp[n] for n in inp["variables"]}}))
+        m, y, mn = MD.functional_mode(v, ids, inp[v.name]["basis"], sub, C.ife_of(p, {"variables": inp["variables"], **{n: inp[n] for n in inp["variables"]}}),
+                                      inp[v.name].get("basis_from", "gp"), req.cfg.seed, {k: inp[v.name].get(k) for k in MD.PREP_DEFAULT if k in inp[v.name]})
         modes.append(m)
         Y.append(y)
         notes += [f"{v.name}: {t}" for t in mn]
@@ -100,10 +101,13 @@ def build(p, req: Request, progress=None) -> MD.Prepared:
         bad = [k for k in inp["values"] if not isinstance(vv[k], np.ndarray)]
         if bad:
             raise MblfError(f"The variable {labels_of(p, bad)[bad[0]]} is a category or text: only numbers can be modelled as values (use it as a covariate instead).")
-        m, y, mn = MD.values_mode(vv, labels_of(p, inp["values"]), ids)
+        m, y, mn = MD.values_mode(vv, labels_of(p, inp["values"]), ids, inp.get("log_keys"), inp.get("values_basis"))
         modes.append(m)
         Y.append(y)
         notes += mn
+    big = [m for m in modes if m.kind != "vector" and m.p > 150]
+    if big:
+        notes.append(f"Large basis ({', '.join(f'{m.p} functions for the {m.name}' for m in big)}), allowed in step 3: the fit will be extremely slow.")
     prepared = MD.Prepared(ids, modes, Y, cov, inp, notes, dropped)
     pres = prepared.presence()
     lacking = int((~pres.all(axis=1)).sum())
@@ -115,7 +119,7 @@ def build(p, req: Request, progress=None) -> MD.Prepared:
 
 def get_prepared(p, req: Request, progress=None) -> MD.Prepared:
     """The prepared modes of the request on the current data; the last one is kept, so ``fit`` right after ``check`` does not redo the basis."""
-    key = C.request_key(p, req.input, 0, res=sorted(p.results))
+    key = C.request_key(p, req.input, req.cfg.seed if any(req.input.get(n, {}).get("basis_from") == "fpca" for n in req.input["variables"]) else 0, res=sorted(p.results))
     return _CACHE.get(key, lambda: build(p, req, progress))
 
 

@@ -20,8 +20,8 @@
 
 ## Steps 1 to 3
 
-* **1 · What to model**: the Functional PCA cards **Fluorescence**, **Absorbance**, **Both together (multivariate)** and **Pre-treatment**; then the card **Other values and covariates**: **Values to model (optional)** (**Add a value**), **Covariates (optional)** (**Add a covariate** (a searchable picker that stays open after each choice, so several variables are added in one go; Esc closes it)), the switch **Use samples that lack a measurement (they contribute what they have, and the model predicts what they lack)**, and the sentence **This model:** that says what the combination answers.
-* **2 · Domain**: the Functional PCA step.  **3 · Basis**: the Functional PCA representation step with the Gaussian-process basis only.
+* **1 · What to model**: the Functional PCA cards **Fluorescence**, **Absorbance**, **Both together (multivariate)** and **Pre-treatment**; then the card **Other values and covariates**: **Values to model (optional)** (**Add a value**), **Covariates (optional)** (**Add a covariate** (a searchable picker that stays open after each choice, so several variables are added in one go; Esc closes it)), beside every number a small **log** box (model it as its log10; a category has none), the switch **Use samples that lack a measurement (they contribute what they have, and the model predicts what they lack)**, and the sentence **This model:** that says what the combination answers.
+* **2 · Domain**: the Functional PCA step.  **3 · Basis**: the Functional PCA representation step with the Gaussian-process basis only, and on top the card **What the model sees** (per function the switch **Log scale: log10(fluorescence + offset)** / **Log scale: log10(absorbance + offset)** with its **Offset** (empty = from the data), **Centred on** (**Mean**, **Median**, **None**) and **Scaled by** (**One number**, **Pareto**, **Every point**, **None**)), with two values or more the card **Basis of the values** (**One per value** / **Principal components**, **Share of their variance to keep (%)**, **Or a number of components**), the card **Where the basis functions come from** (**Gaussian-process prior (the method’s own)** / **Functional PCA of your samples**) with the switch **Allow more than 150 basis functions** (a step-3 problem blocks the fit while a basis has more than 150 terms and the switch is off).
 
 ## Step 4 · Model and sampler
 
@@ -36,18 +36,21 @@
 
 ## Step 6 · Results
 
-Tabs **Overview** · **Factors** · **What tells what** · **How the variation splits** · **Covariates** · **Samples**.
+Tabs **Overview** · **Factors** · **What tells what** · **How the variation splits** · **Covariates** · **Categories** (only with a covariate that has categories) · **Samples**.
+
+Every chart of values (not shares, correlations or probabilities) has the choice **In SDs of each value** (default: every value in standard deviations of that value, so values of very different size can be read side by side) / **Own units, one panel each**.
 
 * **Overview**: the verdict on convergence, cards **Samples**, **Posterior draws**, **Held-out fit (elpd)**, **Factors used (95 % of the shared variation)**; the charts **How many factors the data use** and **How much of each mode the factors carry**.
 * **Factors**: one button per factor with its share; the switch **Band for the whole curve**; per mode the loading function (a fan for a spectrum; for an EEM the choice **Mean**, **2.5 %**, **97.5 %**, **Width**, **P(> 0)**, **Sure sign**; points with intervals for values).
 * **What tells what**: **Predict** (one button per mode), the table of every choice of sources with the predicted share and its interval; for the chosen row the chart **Posterior of the predicted share** and the map of the share point by point; **Correlation of one point with a whole mode** (**Point of**, **Against**).
 * **How the variation splits**: the table of shares (**Shared factors**, **Each sample's own**, **Noise**) and the maps.
-* **Covariates**: the shares the covariates explain and the effect of each covariate on every mode.
+* **Covariates**: the shares the covariates explain and the effect of each covariate on every mode; for a category **Compared with** (any other category of the same covariate; the reference by default).
+* **Categories**: **Covariate**, **Category**, **As** (**The category alone** / **Its typical member**), **Show** (one button per mode), the switch **A new measurement (include the noise of the instrument)**; the text, the other covariates of the typical member, the expected function of the category, **Difference from the average sample**, a new member of the category and its uncertainty budget.
 * **Samples**: the chart **Scores of the samples, with their uncertainty** and the table **The samples the model finds most surprising first**.
 
 ## Step 7 · Prediction and uncertainty
 
-* **One sample**: **Sample**, **Predict**, **From** (the other modes, **Covariates**), the switches **Held out (as if the model had never seen this sample)** and **A new measurement (include the noise of the instrument)**; the prediction (fan / EEM statistic / intervals), the measured values, the map of the probability of being above the training mean, the uncertainty budget (**Population parameters**, **Factor scores of the sample**, **The sample’s own residual**, **Measurement noise**) and **Factor scores of this sample, given what is known about it**.
+* **One sample**: **Sample**, **Predict**, **From** (the other modes, **Covariates**), the switches **Held out (as if the model had never seen this sample)** and **A new measurement (include the noise of the instrument)**; the prediction (fan / EEM statistic / intervals), the measured values, the map of the probability of being above the training mean, the uncertainty budget (**Population parameters**, **Factor scores of the sample**, **The sample’s own variation**, **Measurement noise**), when the sample has the target the card **What the prediction missed** (measured minus predicted: **Measured − predicted** / **In predictive SDs** for an EEM; the residual with the predictive intervals around zero for a spectrum or values) and **Factor scores of this sample, given what is known about it**.
 * **Every choice of sources, held out**: **Target**, **Compare every choice of sources** / **Compare again**, the verdict, the table, **Calibration of the intervals (held out)** and the PIT histogram.
 
 ## Step 8 · Checks and use

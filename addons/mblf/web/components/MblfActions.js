@@ -128,6 +128,18 @@ export function correlation(a, b, x, y, j) {
   const q = { a, b, ...(x !== null && x !== undefined ? { x } : {}), ...(y !== null && y !== undefined ? { y } : {}), ...(j !== null && j !== undefined ? { j } : {}) };
   return ask(`corr|${rid}|${JSON.stringify(q)}`, () => get(`${BASE}/${enc(rid)}/correlation`, q, { quiet: true }));
 }
+export function contrast(key, a, b) {
+  const rid = fp.mb.resRid;
+  if (!rid || !key || !a || !b) return null;
+  const q = { key, a, b };
+  return ask(`contrast|${rid}|${JSON.stringify(q)}`, () => get(`${BASE}/${enc(rid)}/contrast`, q, { quiet: true }));
+}
+export function category(o) {
+  const rid = fp.mb.resRid;
+  if (!rid || !o.key || !o.level) return null;
+  const q = { key: o.key, level: o.level, how: o.how || 'pure', target: o.target, noisy: o.noisy ? 1 : 0 };
+  return ask(`category|${rid}|${JSON.stringify(q)}`, () => get(`${BASE}/${enc(rid)}/category`, q, { quiet: true }));
+}
 export async function runCompare(targets = null, maxPoints = 300) {
   const rid = fp.mb.resRid;
   if (!rid) return null;

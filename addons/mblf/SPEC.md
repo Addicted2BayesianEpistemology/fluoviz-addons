@@ -19,9 +19,23 @@ of its intervals.  Results publish per-sample variables and can be saved as a mo
   samples at every point, divided by the root mean square of the centred samples over the domain (quadrature weights; each sample averaged over the part it has).
 * Basis: FluoViz's Gaussian-process Karhunen–Loève basis (`resolve_basis`, `build_representation`: variogram / ML / given length-scales, separable kernels, Lanczos / Nyström),
   columns multiplied by `sqrt(lam_k / trace)` (the paper's `B = W^-1/2 V Xi^1/2`), truncated at the share of the prior variance asked (default **99 %**; the discarded share is the
-  expected relative truncation error), at most 40 (surface) / 25 (curve) functions by default.  Only the GP basis is offered: the prior of the method is built on it.
-* Values: each variable centred and divided by its SD, identity basis.  Covariates: numbers standardised; categories as centred indicators of every level but the most frequent
-  (the reference); at most 12 levels; samples with a missing covariate are left out (noted).
+  expected relative truncation error), at most 40 (surface) / 25 (curve) functions by default.
+* **Functional PCA basis** (1.1.0, `basis_from: "fpca"`, per function; the page sets both): the samples that have the mode are smoothed with that GP basis (ML smoothing,
+  0.999 of the prior variance, gaps estimated: FluoViz's `prepare_element`), `fit_fpca` gives the eigenfunctions of the smoothed functions; the basis keeps the fewest that hold
+  the share asked (or exactly `n_basis`; at most `k_max`, at most N-1), each times `sqrt(eigenvalue) / scale`.  Data-driven: fewer functions for the same variation, but estimated
+  from the training samples (bands slightly optimistic; the paper's truncation theorem does not apply).  The saved model stores the matrix, as for the GP basis.
+* **Basis size.**  FluoViz's check limits `k_max` / `n_basis` to 400.  Above 150 the request is refused (the field, the mode and the reason in words) unless `input.large_basis`
+  is true; the page shows it as a step-3 problem with the switch *Allow more than 150 basis functions* and a warning once it is on.
+* **What the model sees** (per function, `input.<function>`): `log` (`log10(value + c)` after FluoViz's pre-treatment; `c` given, or 1 % of the 99th percentile of the
+  absolute values; a value `<= -c` counts as not measured), `centre` (`mean` / `median` of the training samples at every point, or `none`), `scaling` (`global`: one number, the
+  RMS of the centred samples over the domain; `pointwise`: every point's SD, floored at 1e-3 of the global RMS; `pareto`: its square root; both rescaled so the standardised data
+  have RMS one; `none`: the data units).  `Mode.mean` / `Mode.scale` (M,) hold the centre and the scale, `Mode.log` the offset: `Mode.forward` applies the log to new samples
+  (saved models), `Mode.backward` undoes it for values and quantiles.  The basis length-scales are estimated on the logged data (divided by the pointwise scale when there is
+  one); a functional PCA basis of data not centred on their mean also holds the mean of the samples.
+* Values: each variable (its `log10` when it is in `input.log_keys`; zero or below = missing) centred and divided by its SD; basis the identity, or (`values_basis.kind = "pca"`)
+  the leading eigenvectors of their pairwise-complete correlation matrix times the square roots of the eigenvalues (the share asked, or `n_basis`).  Covariates: numbers
+  standardised (their `log10` when in `log_keys`; zero or below drops the sample); categories as centred indicators of every level but the most frequent (the reference); at most
+  12 levels; samples with a missing covariate are left out (noted).
 * `partial` (default true): the samples are the union of those that have any mode; otherwise the intersection.
 
 ## 3. The Stan engine (`core/engine.py`, `engine_job.py`)
@@ -58,6 +72,15 @@ samples with the same observed points share the algebra); covariates known: prio
 of a held-out training sample).  **Budget** at every point = parameters (weighted variance of the conditional means) + scores + residual + noise, exactly the predictive
 variance; also its domain-weighted shares.  Pointwise quantiles of the mixture by bisection of its CDF inside mean ± 7 SD (Chebyshev); a simultaneous band from draws of whole
 functions; `P(above the training mean)`; aligned scores with mixture intervals.  Checked against brute-force Gaussian conditioning in `tests/test_core_numerics.py`.
+
+**The residual** of a prediction of a sample that has the target: measured minus the predicted mean, the same divided by the predictive SD (`sqrt` of the budget), the
+predictive quantiles minus the mean (where the residual should lie), domain-weighted RMS and the share beyond ±2 SD.
+
+**Categories** (`views.contrast_route`, `views.category_route`; `Covariates.levels / level_rows / pure / typical`): the difference between any two levels `a`, `b` of a category is
+`scale B Lambda beta (x_a - x_b)` per draw (`x_l` the design of level `l` with the other covariates fixed; the reference is a level like the others).  A level as a sample: `pure`
+= its indicator 1, the other levels 0, every other column 0 (the average of the training samples); `typical` = the mean design row of its training samples (read back from the
+centred indicators).  For the design `x`: the expected function `mean + scale B Lambda beta x` per draw (population uncertainty only), its shift from the training mean, and the
+prediction of a new member (`predict` with no sources and the covariates known: scores, own part, noise).
 
 ## 6. Held-out checks (`core/loo.py`, `core/checks.py`)
 

@@ -36,7 +36,7 @@ export const FigModel = {
 export const FigBudget = {
   name: 'FigBudget',
   setup() {
-    const parts = [{ w: 0.12, c: 'var(--series-4)', t: 'parameters' }, { w: 0.38, c: 'var(--series-1)', t: 'scores' }, { w: 0.4, c: 'var(--series-2)', t: 'own residual' }, { w: 0.1, c: 'var(--series-3)', t: 'noise' }];
+    const parts = [{ w: 0.12, c: 'var(--series-4)', t: 'parameters' }, { w: 0.38, c: 'var(--series-1)', t: 'scores' }, { w: 0.4, c: 'var(--series-2)', t: 'own variation' }, { w: 0.1, c: 'var(--series-3)', t: 'noise' }];
     let x = 20;
     const bars = parts.map((p) => { const o = { ...p, x, width: 520 * p.w }; x += 520 * p.w; return o; });
     return { bars, T, TB };

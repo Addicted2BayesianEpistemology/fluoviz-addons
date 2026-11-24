@@ -4,7 +4,7 @@ For every new sample the model reads what it has (any of the modes; its covariat
 
 * its factor scores (aligned, as on the result's page) with their posterior standard deviations;
 * for every value the model was fitted on (``values`` mode, for example a laboratory measurement): the predicted value and its 95 % predictive interval — from the fluorescence and / or
-  absorbance of the sample (and its covariates), with every source of uncertainty included (the population parameters, the scores, the sample's own residual, the measurement noise);
+  absorbance of the sample (and its covariates), with every source of uncertainty included (the population parameters, the scores, the sample's own variation, the measurement noise);
 * ``mblf_surprise``: how typical the sample is for the model (its log predictive density per measured value; low = unusual), against the same number for the training samples
   that had the same modes (held out, PSIS): ``outside`` below the 1 % (or 5 %) point;
 * ``inspect``: the predicted EEM / spectrum of a sample (what it lacks, or everything) with its bands and the uncertainty budget.
@@ -46,10 +46,13 @@ def outputs_for(model: MblfModel) -> list[dict]:
                     "description": f"The posterior standard deviation of the score on factor {k + 1}: large when the sample's measurements say little about this factor."})
     for m in model.modes:
         if m.kind == "vector":
-            for lab in m.column_labels:
+            logs = list(m.log_cols or []) + [False] * m.M
+            for j, lab in enumerate(m.column_labels):
                 s = slug(lab)
+                what = ("the median of the predictive distribution: the model works on the log of the value, and the value is given back in its own units" if logs[j] else
+                        "the mean of the predictive distribution")
                 out += [{"name": f"mblf_pred_{s}", "label": f"Predicted {lab}", "kind": "numeric",
-                         "description": f"The value of {lab} the model predicts from the sample's other measurements (the mean of the predictive distribution)."},
+                         "description": f"The value of {lab} the model predicts from the sample's other measurements ({what})."},
                         {"name": f"mblf_pred_{s}_lo", "label": f"Predicted {lab}, lower 95 % limit", "kind": "numeric",
                          "description": f"The lower end of the 95 % predictive interval of {lab}: every source of uncertainty is included."},
                         {"name": f"mblf_pred_{s}_hi", "label": f"Predicted {lab}, upper 95 % limit", "kind": "numeric",
@@ -96,7 +99,8 @@ def publish(model: MblfModel, ev: Evaluation, status, flag) -> tuple[dict, dict]
         lo, hi = mean.copy(), mean.copy()
         for i in np.flatnonzero(ev.usable):
             pr = model.predict(ev, i, t, noisy=True)
-            mean[i], lo[i], hi[i] = pr["mean"], pr["quantiles"][0], pr["quantiles"][-1]
+            centre = np.where(np.asarray(list(m.log_cols or []) + [False] * (m.M - len(m.log_cols or [])), bool), pr["quantiles"][3], pr["mean"])
+            mean[i], lo[i], hi[i] = m.backward(centre), m.backward(pr["quantiles"][0]), m.backward(pr["quantiles"][-1])
         for j, lab in enumerate(m.column_labels):
             s = slug(lab)
             var[f"mblf_pred_{s}"], var[f"mblf_pred_{s}_lo"], var[f"mblf_pred_{s}_hi"] = mean[:, j], lo[:, j], hi[:, j]

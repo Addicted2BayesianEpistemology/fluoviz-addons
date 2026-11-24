@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "mblf",
   "name": "Multimodal latent factors (Bayesian, MBLF)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "summary": "Bayesian latent factors shared by EEMs, absorbance spectra and other values, with covariates: shared patterns with credible bands, predictions of one measurement from the others with every source of uncertainty taken apart, honest held-out checks and saved models.",
   "description": "Adds the page Multimodal latent factors to the experimental methods. It fits the Bayesian multimodal latent factor model of Ursino, Epifani and Trovò (mblf-python) to the fluorescence (EEMs), the absorbance spectra, other numbers you measured (a laboratory value, an index), or any combination of them, optionally with metadata as covariates of the factors. A few shared factors describe how the measurements vary together; samples that lack part of a measurement, or a whole one, are used as they are. The page shows the factors with credible bands, how much of every wavelength or pixel the other measurements can predict, the effects of the covariates, and, for any sample, the prediction of one measurement from the others with its uncertainty split into what more training samples, more measurements of the sample, nothing, or the instrument would change. Every choice of predictors is compared held out (leave-one-out) with the coverage of the intervals. A fitted model can be saved and applied to new samples (for example to predict a laboratory value and its interval from an absorbance spectrum). The posterior is sampled by Stan: the first fit asks to prepare a private Stan engine (about 450 MB, downloaded once into the add-on's own folder; FluoViz itself is not changed).",
   "requires_fluoviz": ">=1.2.0,<2",

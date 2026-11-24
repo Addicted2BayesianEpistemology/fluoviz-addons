@@ -4,7 +4,7 @@
 //     band that holds the whole curve), an EEM as a picture of the statistic chosen (mean, a limit, the width of the interval, the probability of a positive value, or the mean
 //     only where its sign is certain), values as points with their 50 % and 95 % intervals;
 //   * the uncertainty budget of a prediction (`MblfBudget`): what share of the predictive variance comes from the population parameters, the factor scores of the sample, the
-//     sample's own residual and the measurement noise, point by point and over the whole mode;
+//     sample's own variation and the measurement noise, point by point and over the whole mode;
 //   * one number with its interval (`MblfInterval`).
 import { computed, ref } from 'vue';
 import { Icon } from '/static/js/icons.js';
@@ -15,7 +15,7 @@ import { tokens, themeState, withAlpha } from '/static/js/theme.js';
 import { fmt } from '/static/js/util.js';
 import { makeParts } from '/addon-web/common/web/parts.js';
 import { pct, nTxt, plural, listWords } from '/addon-web/common/web/words.js';
-import { PARTS, PART_LABELS, PART_WORDS } from './MblfState.js';
+import { PARTS, PART_LABELS, PART_WORDS, fp } from './MblfState.js';
 
 export { fmt, Icon, pct, nTxt, plural, listWords };
 
@@ -112,29 +112,58 @@ export const MblfFan = {
 };
 
 // ---------------------------------------------------------------- values: points with intervals
+// Values can differ in scale by orders of magnitude (a total fluorescence next to a pH): by default every value is drawn in standard deviations of that value (from its mean
+// for a value, as it is for a change), or each in its own units on its own panel.  Shares, correlations and probabilities are drawn as they are.
+export const VALUE_SCALES = [{ value: 'sd', label: 'In SDs of each value', title: 'Every value in standard deviations of that value over the training samples: values of very different size side by side' },
+  { value: 'own', label: 'Own units, one panel each', title: 'Every value in its own units, on its own axis' }];
 export const MblfValuesChart = {
   name: 'MblfValuesChart',
-  components: { PlotlyChart, ChartCard },
-  props: { labels: { type: Array, required: true }, summary: { type: Object, required: true }, observed: { default: null }, title: String, help: String, yTitle: { type: String, default: '' }, zero: Boolean, height: { type: Number, default: 260 } },
+  components: { PlotlyChart, ChartCard, Seg },
+  props: { labels: { type: Array, required: true }, summary: { type: Object, required: true }, observed: { default: null }, title: String, help: String, yTitle: { type: String, default: '' }, zero: Boolean, height: { type: Number, default: 260 },
+    mode: { type: Object, default: null }, quantity: { type: String, default: 'absolute' } },
   setup(props) {
+    const how = computed({ get: () => fp.mb.view.valScale || 'sd', set: (v) => { fp.mb.view.valScale = v; } });
+    const can = computed(() => !!(props.mode && props.mode.sd && props.quantity !== 'ratio' && props.labels.length > 1));
+    const used = computed(() => (can.value ? how.value : 'raw'));
+    const sd = computed(() => (props.mode && props.mode.sd ? arr(nd(props.mode.sd)) : []));
+    const mu = computed(() => (props.mode && props.mode.mean ? arr(nd(props.mode.mean)) : []));
+    const conv = (v, j) => (v === null || used.value !== 'sd' ? v : props.quantity === 'centred' ? v / sd.value[j] : (v - mu.value[j]) / sd.value[j]);
     const traces = computed(() => {
       themeState.version;
       const t = tokens(), q = nd(props.summary.quantiles), L = props.labels;
       const g = (i) => arr(row(q, i));
-      const mid = g(3), lo95 = g(0), hi95 = g(6), lo50 = g(2), hi50 = g(4);
-      const out = [
-        { x: L, y: mid, type: 'scatter', mode: 'markers', marker: { size: 10, color: t.series[0] }, name: 'Median, 95 % interval',
-          error_y: { type: 'data', symmetric: false, array: hi95.map((v, i) => v - mid[i]), arrayminus: mid.map((v, i) => v - lo95[i]), thickness: 1.5, width: 6, color: t.series[0] } },
-        { x: L, y: mid, type: 'scatter', mode: 'markers', marker: { size: 1, color: t.series[0] }, name: '50 % interval', hoverinfo: 'skip',
-          error_y: { type: 'data', symmetric: false, array: hi50.map((v, i) => v - mid[i]), arrayminus: mid.map((v, i) => v - lo50[i]), thickness: 5, width: 0, color: withAlpha(t.series[0], 0.55) } },
-      ];
-      if (props.observed) out.push({ x: L, y: arr(nd(props.observed)), type: 'scatter', mode: 'markers', marker: { size: 11, symbol: 'diamond-open', color: t.text, line: { width: 2 } }, name: 'Measured' });
+      const mid = g(3), lo95 = g(0), hi95 = g(6), lo50 = g(2), hi50 = g(4), obs = props.observed ? arr(nd(props.observed)) : null;
+      const panels = used.value === 'own' ? L.map((_, j) => [j]) : [L.map((_, j) => j)];
+      const out = [];
+      panels.forEach((js, pi) => {
+        const ax = used.value === 'own' ? { xaxis: `x${pi ? pi + 1 : ''}`, yaxis: `y${pi ? pi + 1 : ''}` } : {};
+        const X = js.map((j) => L[j]), c = (a) => js.map((j) => conv(a[j], j)), raw = (a) => js.map((j) => a[j]);
+        const m = c(mid), h95 = c(hi95), l95 = c(lo95), h50 = c(hi50), l50 = c(lo50);
+        out.push({ x: X, y: m, customdata: raw(mid), type: 'scatter', mode: 'markers', marker: { size: 10, color: t.series[0] }, name: 'Median, 95 % interval', showlegend: pi === 0, ...ax,
+          hovertemplate: '%{x}: %{customdata:.4g}<extra></extra>',
+          error_y: { type: 'data', symmetric: false, array: h95.map((v, i) => v - m[i]), arrayminus: m.map((v, i) => v - l95[i]), thickness: 1.5, width: 6, color: t.series[0] } });
+        out.push({ x: X, y: m, type: 'scatter', mode: 'markers', marker: { size: 1, color: t.series[0] }, name: '50 % interval', hoverinfo: 'skip', showlegend: pi === 0, ...ax,
+          error_y: { type: 'data', symmetric: false, array: h50.map((v, i) => v - m[i]), arrayminus: m.map((v, i) => v - l50[i]), thickness: 5, width: 0, color: withAlpha(t.series[0], 0.55) } });
+        if (obs) out.push({ x: X, y: c(obs), customdata: raw(obs), type: 'scatter', mode: 'markers', marker: { size: 11, symbol: 'diamond-open', color: t.text, line: { width: 2 } }, name: 'Measured', showlegend: pi === 0, ...ax,
+          hovertemplate: '%{x} measured: %{customdata:.4g}<extra></extra>' });
+      });
       return out;
     });
-    const layout = computed(() => ({ yaxis: { title: props.yTitle, zeroline: props.zero }, margin: { t: 10, r: 10 }, legend: { orientation: 'h', y: -0.3 } }));
-    return { traces, layout };
+    const layout = computed(() => {
+      const lay = { margin: { t: 10, r: 10 }, legend: { orientation: 'h', y: -0.3 } };
+      if (used.value === 'own') {
+        const n = props.labels.length;
+        lay.grid = { rows: 1, columns: n, pattern: 'independent', xgap: 0.35 };
+        for (let j = 0; j < n; j++) lay[`yaxis${j ? j + 1 : ''}`] = { zeroline: props.zero || props.quantity === 'centred', title: j === 0 ? props.yTitle : '' };
+      } else {
+        const t = used.value === 'sd' ? (props.quantity === 'centred' ? 'Standard deviations of each value' : 'Standard deviations from the mean of each value') : props.yTitle;
+        lay.yaxis = { title: t, zeroline: props.zero || used.value === 'sd' };
+      }
+      return lay;
+    });
+    return { traces, layout, how, can, VALUE_SCALES };
   },
-  template: `<ChartCard :title="title" :help="help" :data="traces" flat><PlotlyChart :data="traces" :layout="layout" :height="height"/></ChartCard>`,
+  template: `<ChartCard :title="title" :help="help" :data="traces" flat><div class="row wrap" v-if="can" style="margin-bottom:4px"><Seg v-model="how" :options="VALUE_SCALES" small data-mblf-valscale/></div><PlotlyChart :data="traces" :layout="layout" :height="height"/></ChartCard>`,
 };
 
 // ---------------------------------------------------------------- one mode, whatever its kind
@@ -152,9 +181,10 @@ export const MblfModeView = {
   components: { EEMView, MblfFan, MblfValuesChart, Seg, HelpTip },
   props: { mode: { type: Object, required: true }, summary: { type: Object, required: true }, observed: { default: null }, title: { type: String, default: '' }, help: { type: String, default: '' },
     signed: Boolean, stats: { type: Array, default: null }, simultaneous: { type: Boolean, default: true }, height: { type: Number, default: 300 }, units: { type: String, default: '' }, exportName: { type: String, default: '' },
-    compact: Boolean },
+    compact: Boolean, quantity: { type: String, default: null } },
   setup(props) {
     const stat = ref('mean');
+    const qty = computed(() => props.quantity || (['share', 'correlation', 'probability'].includes(props.units) ? 'ratio' : props.signed ? 'centred' : 'absolute'));
     const options = computed(() => STATS.filter((s) => (props.stats ? props.stats.includes(s.value) : true)).filter((s) => (s.value === 'p_pos' || s.value === 'sure' ? !!props.summary.p_pos : true)));
     const picture = computed(() => {
       const s = props.summary, q = nd(s.quantiles);
@@ -170,7 +200,7 @@ export const MblfModeView = {
     const zrange = computed(() => (stat.value === 'p_pos' ? [0, 1] : null));
     const mask = computed(() => (props.mode.mask ? img(nd(props.mode.mask)) : null));
     const caption = computed(() => (options.value.find((o) => o.value === stat.value) || {}).title || '');
-    return { stat, options, picture, kind, zrange, mask, caption };
+    return { stat, options, picture, kind, zrange, mask, caption, qty };
   },
   template: `
   <div class="mblf-modeview" :data-mblf-mode="mode.name">
@@ -180,7 +210,7 @@ export const MblfModeView = {
       <p class="muted xs mblf-caption">{{ caption }}.</p>
     </template>
     <MblfFan v-else-if="mode.kind === 'curve'" :x="mode.x" :summary="summary" :observed="observed" :title="title" :help="help" :y-title="units" :zero="signed" :height="height" :simultaneous="simultaneous"/>
-    <MblfValuesChart v-else :labels="mode.labels" :summary="summary" :observed="observed" :title="title" :help="help" :zero="signed"/>
+    <MblfValuesChart v-else :labels="mode.labels" :summary="summary" :observed="observed" :title="title" :help="help" :zero="signed" :mode="mode" :quantity="qty" :y-title="units"/>
   </div>`,
 };
 

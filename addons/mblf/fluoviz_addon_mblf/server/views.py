@@ -92,17 +92,101 @@ def sample_view(p, r, sid: str, target: str | None, sources: str | None, covaria
     text = (f"The {mode.label} of {sid} predicted from {what}{' (held out: the fit without this sample)' if w is not None else ''}. Its uncertainty comes {parts}." +
             (f" The sample has no {', '.join(lacking)}, so it could not be used." if lacking else ""))
     cover = None
+    resid = None
     if obs_data is not None:
         ok = np.isfinite(observed)
         lo, hi = pr["quantiles"][0][ok], pr["quantiles"][-1][ok]
         cover = float(np.mean((obs_data[ok] >= lo) & (obs_data[ok] <= hi)))
+        resid = residual_view(mode, obs_data, pr)
     return {"id": sid, "target": mode.name, "sources": [f.modes[d].name for d in used], "covariates": X is not None, "noisy": bool(noisy), "held_out": w is not None, "pareto_k": k,
-            "text": text, "observed": None if obs_data is None else PL.to_view(mode, obs_data), "inside95": cover,
+            "text": text, "observed": None if obs_data is None else PL.to_view(mode, obs_data), "inside95": cover, "residual": resid,
             "mean": PL.to_view(mode, pr["mean"]), "quantiles": PL.to_view(mode, pr["quantiles"]), "probs": pr["probs"],
             "band": {"level": pr["band"]["level"], "multiplier": pr["band"]["multiplier"], "lower": PL.to_view(mode, pr["band"]["lower"]), "upper": PL.to_view(mode, pr["band"]["upper"])},
             "budget": {k_: PL.to_view(mode, v) for k_, v in pr["budget"].items()}, "budget_total": bt, "p_above": PL.to_view(mode, pr["p_above"]),
             "scores": pr["scores"], "n_draws": pr["n_draws"],
             "sources_data": [{"mode": f.modes[d].name, "values": PL.to_view(f.modes[d], f.modes[d].to_data(f.Y[d][:, n]))} for d in used]}
+
+
+def residual_view(mode, obs: np.ndarray, pr: dict) -> dict:
+    """What the prediction missed: measured minus predicted (data units) at every measured point, the same divided by the predictive standard deviation, and the predictive
+    quantiles around the predicted mean (where the residual is expected to lie)."""
+    res = obs - pr["mean"]
+    sd = np.sqrt(np.maximum(sum(pr["budget"].values()), 1e-300))
+    z = res / sd
+    ok = np.isfinite(res)
+    w = mode.w[ok] / max(mode.w[ok].sum(), 1e-300)
+    return {"value": PL.to_view(mode, res), "z": PL.to_view(mode, z), "quantiles": PL.to_view(mode, pr["quantiles"] - pr["mean"][None]), "probs": pr["probs"],
+            "rms": float(np.sqrt(np.sum(w * res[ok] ** 2))) if ok.any() else None, "rms_z": float(np.sqrt(np.sum(w * z[ok] ** 2))) if ok.any() else None,
+            "beyond2": float(np.sum(w * (np.abs(z[ok]) > 2))) if ok.any() else None}
+
+
+def _design_words(f, x: np.ndarray) -> list[dict]:
+    """A design row ``(L,)`` back in words: a number in its own units (from the log when it enters as one), a category as the share of each level."""
+    out = []
+    for j, c in enumerate(f.cov.columns):
+        if c["kind"] == "numeric":
+            v = c["mean"] + c["sd"] * float(x[j])
+            out.append({"label": c["label"].removeprefix("log10 ") if c.get("log") else c["label"], "kind": "numeric", "value": 10.0 ** v if c.get("log") else v})
+        else:
+            out.append({"label": c["label"], "kind": "level", "value": float(np.clip(x[j] + c["mean"], 0.0, 1.0))})
+    return out
+
+
+def _level_design(f, key: str, level: str, how: str) -> tuple[np.ndarray, int]:
+    if f.cov is None:
+        raise HTTPException(400, "This model has no covariates.")
+    try:
+        if how == "typical":
+            return f.cov.typical(key, level)
+        return f.cov.pure(key, level), int(f.cov.level_rows(key, level).size)
+    except MblfError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+def contrast_route(r, key: str, a: str, b: str) -> dict:
+    """The difference of every mode between category ``a`` and category ``b`` of the covariate ``key``, everything else equal: ``scale B Lambda beta (x_a - x_b)`` at every draw
+    (the reference is one of the levels like any other)."""
+    from ..core import structure as ST
+    f = fitted_of(r)
+    xa, na = _level_design(f, key, a, "pure")
+    xb, nb = _level_design(f, key, b, "pure")
+    idx = thin(f.draws.S, VIEW_DRAWS, f.draws.chains)
+    eta = np.einsum("skl,l->sk", f.beta(idx), xa - xb)
+    modes = []
+    for d, m in enumerate(f.modes):
+        eff = np.einsum("mp,spk,sk->sm", m.B, f.lam(d, idx=idx), eta) * m.scale[None]
+        modes.append({"mode": m.name, **PL.view_summary(m, ST.summarise(eff))})
+    return {"key": key, "a": a, "b": b, "n_a": na, "n_b": nb, "modes": modes}
+
+
+def category_route(r, key: str, level: str, how: str, target: str | None, noisy: bool) -> dict:
+    """A category of a covariate as a sample: ``pure`` (its indicator 1, the other levels 0, the other covariates at the average of all the training samples) or ``typical`` (the
+    average covariates of the training samples of that category).  For the mode ``target``: the posterior of its expected function (the "face" of the category: only the
+    uncertainty about the population), its shift from the mean of all the samples, and the predictive distribution of a new member (scores, own part and, for a new measurement,
+    noise included)."""
+    from ..core import structure as ST
+    if how not in ("pure", "typical"):
+        raise HTTPException(400, "'how' must be 'pure' (the category alone) or 'typical' (the typical member, with the average covariates of the category).")
+    f = fitted_of(r)
+    x, n_in = _level_design(f, key, level, how)
+    t = _mode_index(f, target) if target else next((d for d, m in enumerate(f.modes) if m.kind == "surface"), 0)
+    m = f.modes[t]
+    idx = thin(f.draws.S, VIEW_DRAWS, f.draws.chains)
+    eta = np.einsum("skl,l->sk", f.beta(idx), x)
+    shift = np.einsum("mp,spk,sk->sm", m.B, f.lam(t, idx=idx), eta) * m.scale[None]
+    pr = P.predict(f, t, {}, x[None], idx, noisy=noisy)
+    bt = pr["budget_total"]
+    parts = "; ".join(f"{100 * bt[k_]:.0f} % from {P.PART_WORDS[k_]}" for k_ in P.PARTS if bt[k_] > 0.005)
+    lab = f.cov.labels[f.cov.keys.index(key)] if key in f.cov.keys else key
+    who = (f"a sample of {lab} = {level} whose other covariates are at the average of all the training samples" if how == "pure" else
+           f"the typical member of {lab} = {level}: the average covariates of its {n_in} training sample(s)")
+    text = (f"The {m.label} of {who}. The expected {m.label} carries only the uncertainty about the population; a new member also varies in its factor scores and its own part"
+            f"{' and the measurement noise' if noisy else ''}: {parts}.")
+    return {"key": key, "label": lab, "level": level, "how": how, "target": m.name, "n": n_in, "noisy": bool(noisy), "text": text, "design": _design_words(f, x),
+            "expected": PL.view_summary(m, ST.summarise(m.mean[None] + shift)), "shift": PL.view_summary(m, ST.summarise(shift)),
+            "member": {"mean": PL.to_view(m, pr["mean"]), "quantiles": PL.to_view(m, pr["quantiles"]), "probs": pr["probs"],
+                       "band": {"level": pr["band"]["level"], "multiplier": pr["band"]["multiplier"], "lower": PL.to_view(m, pr["band"]["lower"]), "upper": PL.to_view(m, pr["band"]["upper"])}},
+            "budget": {k_: PL.to_view(m, v) for k_, v in pr["budget"].items()}, "budget_total": bt, "n_draws": pr["n_draws"]}
 
 
 def predictable_route(r, target: str, sources: str | None, covariates: bool) -> dict:

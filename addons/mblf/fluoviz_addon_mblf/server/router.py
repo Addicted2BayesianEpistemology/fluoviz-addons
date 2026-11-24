@@ -11,6 +11,8 @@ the modules of this folder; the numerics are ``core`` and ``kinds``.
     GET    /{rid}/sample/{sid}          the prediction of one mode of one sample (sources, covariates, noisy, held out)
     GET    /{rid}/predictable           the predictable fraction of a target from chosen sources, point by point
     GET    /{rid}/correlation           the correlation of one point with every point of a mode
+    GET    /{rid}/contrast              the difference of every mode between two categories of a covariate
+    GET    /{rid}/category              a category as a sample: its expected function ("pure" or "typical" member) and the prediction of a new member
     POST   /{rid}/compare    (job)      held-out comparison of every choice of sources for the targets
     GET    /{rid}/samples   /methods   /export
 """
@@ -152,6 +154,16 @@ def sample(rid: str, sid: str, target: str | None = None, sources: str | None = 
 @router.get("/{rid}/predictable")
 def predictable(rid: str, target: str, sources: str | None = "auto", covariates: int = 1):
     return views.predictable_route(get_result(project(), rid), target, sources, bool(covariates))
+
+
+@router.get("/{rid}/contrast")
+def contrast(rid: str, key: str, a: str, b: str):
+    return views.contrast_route(get_result(project(), rid), key, a, b)
+
+
+@router.get("/{rid}/category")
+def category(rid: str, key: str, level: str, how: str = "pure", target: str | None = None, noisy: int = 0):
+    return views.category_route(get_result(project(), rid), key, level, how, target, bool(noisy))
 
 
 @router.get("/{rid}/correlation")

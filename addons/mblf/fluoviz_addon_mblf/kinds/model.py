@@ -126,12 +126,13 @@ class MblfModel:
                 Yt[~ok] = np.nan
             else:
                 Yt = raw
+            Yt = m.forward(Yt)                                                      # the units of the model (a log where it was asked)
             cov = (np.isfinite(Yt) * m.w).sum(axis=1)
-            low = (cov > 0) & (cov < min_coverage - 1e-12)
+            low = (cov > 0) & (cov < min_coverage - 1e-12) & (m.element is not None)          # (values: a missing value is just missing)
             for i in np.flatnonzero(low):
                 why[i].append(f"Only {100 * cov[i]:.0f} % of the {m.label} points of the model were measured (at least {100 * min_coverage:.0f} % are needed); it was left out.")
             Yt[low] = np.nan
-            Y[d] = m.standardise(Yt)
+            Y[d] = ((Yt - m.mean) / m.scale).T
             present[:, d] = np.isfinite(Yt).any(axis=1)
             cover[:, d] = np.where(present[:, d], cov, 0.0)
         return Y, present, cover, why

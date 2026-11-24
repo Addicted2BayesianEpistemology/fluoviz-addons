@@ -1,5 +1,8 @@
 /* The Multimodal latent factors page (add-on).  Colours only through the tokens of FluoViz (css/tokens.css); every class starts with mblf-. */
 .mblf-page .mblf-what .chip .x { margin-left: 6px; cursor: pointer; opacity: .7; }
+.mblf-page .mblf-what .chip .mblf-log { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--line); font-size: .85em; cursor: pointer; }
+.mblf-page .mblf-prep-row + .mblf-prep-row { border-top: 1px solid var(--line); padding-top: 12px; }
+.mblf-page .mblf-design { display: flex; flex-wrap: wrap; gap: 6px; }
 .mblf-page .mblf-section { display: flex; flex-direction: column; gap: 8px; }
 .mblf-page .mblf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; align-items: start; }
 .mblf-page .mblf-mv-head { align-items: center; gap: 8px; margin-bottom: 4px; }

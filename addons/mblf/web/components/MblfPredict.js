@@ -18,9 +18,39 @@ import { samplePrediction, runCompare } from './MblfActions.js';
 import { MblfVerdict, MblfSection, MblfModeView, MblfBudget, nd, img, arr, modeOf, modeLabel, sourceWords, pct, num } from './MblfCommon.js';
 import { MblfGate, MblfStaleNote } from './MblfResults.js';
 
+// ---------------------------------------------------------------- what the prediction missed
+const RESID_STATS = [{ value: 'value', label: 'Measured − predicted', title: 'The residual in the units of the mode' },
+  { value: 'z', label: 'In predictive SDs', title: 'The residual divided by the predictive standard deviation at that point: beyond ±2 is unusual (about 5 % of the points if the uncertainty is honest)' }];
+const MblfResidual = {
+  name: 'MblfResidual',
+  components: { Seg, EEMView, MblfModeView },
+  props: { mode: { type: Object, required: true }, res: { type: Object, required: true }, heldOut: Boolean },
+  setup(props) {
+    const stat = computed({ get: () => fp.mb.pred.residStat || 'value', set: (v) => { fp.mb.pred.residStat = v; } });
+    const mask = computed(() => (props.mode.mask ? img(nd(props.mode.mask)) : null));
+    const picture = computed(() => img(nd(stat.value === 'z' ? props.res.z : props.res.value)));
+    const zrange = computed(() => (stat.value === 'z' ? [-3, 3] : null));
+    const summary = computed(() => ({ quantiles: props.res.quantiles }));
+    return { stat, RESID_STATS, mask, picture, zrange, summary, num, pct };
+  },
+  template: `
+  <div class="card flat" data-mblf-residual>
+    <div class="card-head"><h3>What the prediction missed</h3></div>
+    <div class="card-body col gap-8">
+      <p class="small">The measured {{ mode.label }} minus the predicted mean{{ heldOut ? ' (held out)' : '' }}: root mean square <b>{{ num(res.rms, 3) }}</b>{{ mode.units ? ' ' + mode.units : '' }}, or <b>{{ num(res.rms_z, 2) }}</b> predictive standard deviations; {{ pct(res.beyond2, 0) }} of the {{ mode.kind === 'vector' ? 'values' : 'domain' }} lies beyond ±2 of them (about 5 % if the uncertainty is honest). Structure in it (a peak, a slope) is what the sources could not tell about this sample.</p>
+      <template v-if="mode.kind === 'surface'">
+        <div class="row wrap"><Seg v-model="stat" :options="RESID_STATS" small data-mblf-resid-stat/></div>
+        <EEMView :ex="mode.ex" :em="mode.em" :z="picture" :mask="mask" kind="diverging" :zrange="zrange" :units="stat === 'z' ? 'SD' : mode.units" :height="380" marginals="none" export-name="residual"/>
+      </template>
+      <MblfModeView v-else :mode="mode" :summary="summary" :observed="res.value" signed quantity="centred" :units="mode.units" :simultaneous="false"
+                    :title="'Measured − predicted (dots), with the predictive 50, 80 and 95 % intervals around zero'"/>
+    </div>
+  </div>`,
+};
+
 const MblfOneSample = {
   name: 'MblfOneSample',
-  components: { Icon, Callout, Seg, Switch, Field, EEMView, PlotlyChart, ChartCard, MblfModeView, MblfBudget, MblfVerdict },
+  components: { Icon, Callout, Seg, Switch, Field, EEMView, PlotlyChart, ChartCard, MblfModeView, MblfBudget, MblfVerdict, MblfResidual },
   setup() {
     const p = computed(() => fp.mb.res.p);
     const P = computed(() => fp.mb.pred);
@@ -92,6 +122,7 @@ const MblfOneSample = {
           <div><div class="xs"><b>Probability that the sample is above the mean of the training samples</b> (near 1 = surely above, near 0 = surely below)</div><EEMView :ex="mode.ex" :em="mode.em" :z="pAbove" :mask="mask" kind="diverging" :zrange="[0, 1]" units="probability" compact :height="230"/></div>
         </div>
       </div>
+      <MblfResidual v-if="R.residual" :mode="mode" :res="R.residual" :held-out="R.held_out"/>
       <MblfBudget :mode="mode" :budget="R.budget" :total="R.budget_total" :noisy="R.noisy"/>
       <ChartCard title="Factor scores of this sample, given what is known about it" help="The posterior of the scores of the sample from the chosen sources (aligned as in the Factors tab). Wide intervals: the sources say little about that factor." :data="scoreTraces" flat>
         <PlotlyChart :data="scoreTraces" :layout="scoreLayout" :height="220"/>
@@ -179,7 +210,7 @@ export const MblfPredict = {
     const view = computed({ get: () => A.value.view.predTab || 'one', set: (v) => { A.value.view.predTab = v; } });
     const TABS = [{ value: 'one', label: 'One sample' }, { value: 'compare', label: 'Every choice of sources, held out' }];
     return { A, ready, view, TABS,
-      DOES: 'Predicts one measurement of a sample from the others, the way the method prescribes: at every posterior draw the prediction is Gaussian given the sample’s sources; the draws are averaged. Its uncertainty is split into four parts you can act on: the population parameters (more training samples), the factor scores of the sample (more or better measurements of it), the sample’s own residual (nothing: no other measurement can tell it), and the measurement noise.',
+      DOES: 'Predicts one measurement of a sample from the others, the way the method prescribes: at every posterior draw the prediction is Gaussian given the sample’s sources; the draws are averaged. Its uncertainty is split into four parts you can act on: the population parameters (more training samples), the factor scores of the sample (more or better measurements of it), the sample’s own variation (nothing: no other measurement can tell it), and the measurement noise.',
       CHECK: 'That the held-out intervals contain about as many measured values as they claim (the comparison: 50, 80 and 95 %), before you trust a prediction for a sample that lacks a measurement. A choice of sources that is not clearly better than a simpler one is not worth its cost.' };
   },
   template: `

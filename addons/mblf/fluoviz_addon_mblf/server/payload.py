@@ -30,14 +30,15 @@ def to_view(mode, arr):
 
 def mode_info(mode, n_samples: int) -> dict:
     out = {"name": mode.name, "label": mode.label, "kind": mode.kind, "n_points": mode.M, "n_basis": mode.p, "captured": mode.captured, "basis": dict(mode.basis), "units": mode.units,
-           "n_samples": n_samples, "mean": to_view(mode, mode.mean)}
+           "n_samples": n_samples, "mean": to_view(mode, mode.mean), "log": dict(mode.log) if mode.log else None, "prep": dict(mode.prep or {})}
     if mode.kind == "surface":
         el = mode.element
         out.update(ex=np.asarray(el.axes[1], float), em=np.asarray(el.axes[0], float), mask=np.ascontiguousarray((~np.asarray(el.obs, bool)).T.astype(np.uint8)))
     elif mode.kind == "curve":
         out.update(x=np.asarray(mode.element.axes[0], float))
     else:
-        out.update(columns=list(mode.columns), labels=list(mode.column_labels), sd=np.asarray(mode.scale, float))
+        out.update(columns=list(mode.columns), labels=list(mode.model_labels), sd=np.asarray(mode.scale, float),
+                   log_cols=[bool(x) for x in (mode.log_cols or [False] * mode.M)])
     return out
 
 

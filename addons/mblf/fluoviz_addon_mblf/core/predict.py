@@ -35,7 +35,7 @@ PARTS = ("parameters", "scores", "residual", "noise")
 PART_WORDS = {
     "parameters": "the population parameters (more training samples shrink it)",
     "scores": "the factor scores of this sample (more, or more precise, measurements of the sample shrink it)",
-    "residual": "the sample's own residual (what the other measurements cannot tell about it)",
+    "residual": "the sample's own variation (what the other measurements cannot tell about it)",
     "noise": "measurement noise (only for a new measurement)",
 }
 

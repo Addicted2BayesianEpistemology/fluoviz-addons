@@ -155,3 +155,75 @@ def test_leave_one_out_comparison_of_the_sources(world):
     assert by["nothing"]["gain"] == 0.0
     cal = LOO.calibration(f, 1, by["absorbance"], idx, base)
     assert cal["n_samples"] == f.N and 0.5 < cal["coverage"]["0.95"] <= 1.0 and cal["rmse"] > 0
+
+
+def test_the_functional_pca_basis_keeps_the_share_and_scales_by_the_eigenvalues():
+    from fluoviz_addon_mblf.core.modes import fpca_basis_matrix
+    rng = np.random.default_rng(0)
+    Q, _ = np.linalg.qr(rng.normal(size=(30, 6)))
+    eig = Q.T                                                                   # (6, 30) orthonormal
+    lam = np.array([8.0, 4.0, 2.0, 1.0, 0.5, 0.5])
+    cum = np.cumsum(lam) / lam.sum()
+    B, lk, cap = fpca_basis_matrix(eig, lam, cum, 2.0, 0.85, None, 40)
+    assert B.shape == (30, 3) and cap == pytest.approx(14 / 16) and np.allclose(lk, lam[:3] / 4)
+    assert np.allclose(B.T @ B, np.diag(lam[:3] / 4))
+    B2, _, _ = fpca_basis_matrix(eig, lam, cum, 2.0, 0.85, None, 2)
+    assert B2.shape[1] == 2
+    B3, _, _ = fpca_basis_matrix(eig, lam, cum, 2.0, 0.85, 10, 40)
+    assert B3.shape[1] == 6
+
+
+def test_centring_and_scaling_give_a_root_mean_square_of_one():
+    from fluoviz_addon_mblf.core.modes import standardise_columns
+    rng = np.random.default_rng(1)
+    Y = rng.normal(size=(20, 30)) * np.linspace(0.1, 5, 30) + 3
+    Y[2, 5:9] = np.nan
+    Y[7] = np.nan
+    w = np.full(30, 1 / 30)
+    for centre in ("mean", "median", "none"):
+        for scaling in ("global", "pointwise", "pareto"):
+            c, Z, s = standardise_columns(Y, w, "x", centre, scaling)
+            assert np.allclose((Y - c) / s, Z.T, equal_nan=True) and s.shape == (30,)
+            obs = np.isfinite(Z.T)
+            per = (np.where(obs, Z.T, 0) ** 2 @ w) / (obs @ w).clip(1e-12)
+            assert np.sqrt(per[np.isfinite(Y).any(axis=1)].mean()) == pytest.approx(1.0, rel=1e-9)
+    c, Z, s = standardise_columns(Y, w, "x", "none", "none")
+    assert np.all(c == 0) and np.all(s == 1)
+    _, _, s = standardise_columns(Y, w, "x", "mean", "pointwise")
+    assert s[-1] / s[0] > 20                                                               # every point by its own spread
+
+
+def test_the_log_goes_both_ways_and_values_have_principal_components():
+    from fluoviz_addon_mblf.core.modes import Mode, log10_or_nan, values_mode, values_pca_basis
+    m = Mode("fluorescence", "curve", np.eye(3), np.zeros(3), np.ones(3), np.full(3, 1 / 3), np.zeros((3, 1)), log={"offset": 0.5})
+    y = np.array([[-0.6, 0.0, 9.5]])
+    f = m.forward(y)
+    assert np.isnan(f[0, 0]) and f[0, 2] == pytest.approx(1.0) and np.allclose(m.backward(f[:, 1:]), y[:, 1:])
+    assert np.isnan(log10_or_nan(np.array([0.0]), 0.0)[0])
+    rng = np.random.default_rng(2)
+    z = rng.normal(size=60)
+    cols = {"a": np.exp(z + 0.1 * rng.normal(size=60)), "b": 2 * z + 0.1 * rng.normal(size=60), "c": rng.normal(size=60)}
+    mode, Z, notes = values_mode(cols, {"a": "A"}, list(range(60)), ["a"], {"kind": "pca", "var_fraction": 0.6})
+    assert mode.model_labels == ["log10 A", "b", "c"] and mode.log_cols == [True, False, False] and mode.p == 1 and mode.basis["kind"] == "pca"
+    assert np.allclose(mode.standardise(np.column_stack([cols[k] for k in "abc"])), Z, equal_nan=True)
+    B, lam, cap, r = values_pca_basis(Z, 0.99, 3)
+    C = np.corrcoef(Z)
+    assert np.allclose(B @ B.T, C, atol=1e-9) and cap == pytest.approx(1.0) and r == 3
+
+
+def test_a_category_as_a_sample_pure_and_typical():
+    from fluoviz_addon_mblf.core.modes import covariates_from
+    site = ["a", "a", "a", "b", "b", "c"] * 3
+    temp = np.arange(18.0) + 1
+    cov, keep, _ = covariates_from({"meta:site": site, "meta:t": temp}, {"meta:site": "site", "meta:t": "t"}, list(range(18)), ["meta:t"])
+    assert keep.all() and cov.columns[-1]["label"] == "log10 t" and cov.columns[-1]["log"]
+    ref, levels = cov.levels("meta:site")
+    assert ref == "a" and levels == ["a", "b", "c"]
+    assert list(cov.level_rows("meta:site", "c")) == [5, 11, 17] and cov.level_rows("meta:site", "a").size == 9
+    x = cov.pure("meta:site", "b")
+    jb = next(j for j, c in enumerate(cov.columns) if c.get("level") == "b")
+    jc = next(j for j, c in enumerate(cov.columns) if c.get("level") == "c")
+    assert x[jb] + cov.columns[jb]["mean"] == pytest.approx(1.0) and x[jc] + cov.columns[jc]["mean"] == pytest.approx(0.0) and x[-1] == 0.0
+    xt, n = cov.typical("meta:site", "c")
+    assert n == 3 and xt[jc] + cov.columns[jc]["mean"] == pytest.approx(1.0) and xt[-1] == pytest.approx(cov.X[[5, 11, 17], -1].mean())
+    assert np.allclose(cov.design({"meta:site": ["c"], "meta:t": [6.0]})[0], cov.X[5])
